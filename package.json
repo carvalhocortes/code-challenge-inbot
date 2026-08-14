@@ -11,8 +11,8 @@
     "build": "pnpm --recursive --if-present run build",
     "typecheck": "pnpm --recursive --if-present run typecheck",
     "test": "pnpm --recursive --if-present run test",
-    "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json backend frontend shared",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json backend frontend shared"
+    "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json docker-compose.yml infra backend frontend shared",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json docker-compose.yml infra backend frontend shared"
   },
   "devDependencies": {
     "prettier": "3.5.3"

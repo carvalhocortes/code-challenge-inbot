@@ -1,15 +1,17 @@
-import { Pool } from "pg";
+import pg from "pg";
 import { Redis } from "ioredis";
 
 import type { RuntimeConfig } from "../config.js";
 
 export interface RuntimeDependencies {
-  postgres: Pool;
+  postgres: InstanceType<typeof pg.Pool>;
   redis: Redis;
 }
 
-export function createPostgresPool(databaseUrl: string): Pool {
-  return new Pool({ connectionString: databaseUrl });
+export function createPostgresPool(
+  databaseUrl: string,
+): InstanceType<typeof pg.Pool> {
+  return new pg.Pool({ connectionString: databaseUrl });
 }
 
 export function createRuntimeDependencies(

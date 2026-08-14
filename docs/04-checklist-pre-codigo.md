@@ -38,6 +38,8 @@ A primeira fatia demonstrável é a criação de um Ticket com estado `pending` 
 
 ### E0 — Fundação reproduzível
 
+**Status:** Concluída em 2026-08-14.
+
 **Objetivo:** criar o monorepo executável sem adicionar regra de negócio.
 
 **Entregáveis:**
@@ -188,4 +190,4 @@ A versão só estará pronta quando todos os itens abaixo forem verdadeiros:
 
 ## 8. Próximo incremento
 
-O próximo trabalho é **E0 — Fundação reproduzível**. Ao concluí-lo, iniciaremos E1 com os testes do cálculo de SLA antes de integrar banco, fila ou UI.
+O próximo trabalho é **E1 — Contratos executáveis e domínio puro**. Ele começa pelos testes do cálculo de SLA antes de integrar banco, fila ou UI.

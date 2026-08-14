@@ -5,7 +5,7 @@ Plataforma Full Stack para cadastro, acompanhamento e processamento assíncrono 
 ## Estado atual
 
 > [!NOTE]
-> O repositório está na fase de especificação. Escopo, regras de negócio, critérios de aceite e cenários BDD já estão documentados. Aplicação, containers e comandos de execução serão adicionados nas próximas etapas.
+> A fundação executável (E0) está implementada: monorepo pnpm, API e Worker mínimos, Frontend Vite e Docker Compose. As capacidades de Ticket, migrations e fila ainda serão implementadas nas próximas etapas.
 
 ## Objetivos
 
@@ -104,29 +104,28 @@ O plano de evolução, com premissas e etapas de medição, está em [docs/06-es
 
 ## Como iniciar
 
-### Estado atual
+### Fundação E0
 
-Não existe aplicação executável neste commit inicial. Para revisar planejamento:
-
-```bash
-git clone <URL_DO_REPOSITORIO>
-cd <DIRETORIO_DO_REPOSITORIO>
-```
-
-Depois, consulte `docs/04-checklist-pre-codigo.md`, `docs/01-escopo-entrega-e-bdd.md` e `docs/06-estrategia-de-dados-e-escala.md`.
-
-Dependências serão instaladas com `pnpm install` quando a implementação estiver disponível.
-
-### Execução planejada
-
-Quando implementação estiver disponível, fluxo de inicialização será:
+Pré-requisitos: Node 22, Corepack e Docker Compose.
 
 ```bash
+corepack enable
+pnpm install --frozen-lockfile
 cp .env.example .env
 docker compose up --build
 ```
 
-README será atualizado com portas, health checks, migrations, testes e diagnóstico antes da entrega final.
+Nesta etapa, o Frontend em `http://localhost:5173` apresenta apenas a casca da aplicação. A API expõe `GET /health/live` e `GET /health/ready` em `http://localhost:3000`; não existem endpoints de Ticket ainda.
+
+Para validar o código fora do Docker:
+
+```bash
+pnpm build
+pnpm typecheck
+pnpm test
+```
+
+As migrations reais entram na E2. Até lá, o serviço `migrate` apenas verifica que o PostgreSQL está acessível antes de liberar API e Worker.
 
 ## Testes planejados
 
