@@ -28,12 +28,14 @@ export type TicketProcessingStatus = z.infer<
 
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 
-export const createTicketRequestSchema = z.object({
-  title: z.string().trim().min(3).max(120),
-  description: z.string().trim().min(10).max(2_000),
-  requesterEmail: z.string().email(),
-  priority: ticketPrioritySchema,
-});
+export const createTicketRequestSchema = z
+  .object({
+    title: z.string().trim().min(3).max(120),
+    description: z.string().trim().min(10).max(2_000),
+    requesterEmail: z.string().trim().email(),
+    priority: ticketPrioritySchema,
+  })
+  .strict();
 export type CreateTicketRequest = z.infer<typeof createTicketRequestSchema>;
 
 export const updateTicketStatusRequestSchema = z
