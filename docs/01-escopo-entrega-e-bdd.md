@@ -1,6 +1,6 @@
 # Gestão de Tickets - Escopo, Entrega e Especificação BDD
 
-**Status:** Proposto para validação
+**Status:** Aceito para implementação
 
 **Versão:** 0.1
 
@@ -69,19 +69,20 @@ Executa a aplicação, inspeciona código e testes, provoca falhas e questiona d
 
 ## 5. Glossário
 
-| Termo | Definição |
-| --- | --- |
-| Ticket | Solicitação de suporte persistida pelo sistema. |
-| Prioridade | Urgência do ticket: `critical`, `high`, `medium` ou `low`. |
-| Status de negócio | Etapa do atendimento: `open`, `in_progress`, `resolved` ou `closed`. |
-| Status de processamento | Estado técnico do cálculo de SLA: `pending`, `processing`, `processed` ou `failed`. |
-| SLA | Prazo máximo desta demonstração para resolução, calculado em horas úteis. |
-| Horário útil | Segunda a sexta-feira, das 09:00 às 18:00, no fuso `America/Sao_Paulo`, exceto feriados nacionais. |
-| Histórico | Registro imutável de criação e alterações de status ou prioridade. |
-| Job | Unidade de processamento publicada no BullMQ. |
-| Falha transitória | Timeout, indisponibilidade, HTTP `429` ou HTTP `5xx`, passível de nova tentativa. |
-| Falha definitiva | Erro não recuperado após o limite de tentativas ou resposta que não deve ser repetida. |
-| Idempotência | Garantia de que repetir a mesma operação não duplica seus efeitos. |
+| Termo                   | Definição                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| Ticket                  | Solicitação de suporte persistida pelo sistema.                                                           |
+| Prioridade              | Urgência do ticket: `critical`, `high`, `medium` ou `low`.                                                |
+| Status de negócio       | Etapa do atendimento: `open`, `in_progress`, `resolved` ou `closed`.                                      |
+| Status de processamento | Estado técnico do cálculo de SLA: `pending`, `processing`, `processed` ou `failed`.                       |
+| SLA                     | Prazo máximo desta demonstração para resolução, calculado em horas úteis.                                 |
+| Horário útil            | Segunda a sexta-feira, das 09:00 às 18:00, no fuso `America/Sao_Paulo`, exceto feriados nacionais.        |
+| Histórico               | Registro imutável de criação e alterações de status ou prioridade.                                        |
+| Job                     | Unidade de processamento publicada no BullMQ.                                                             |
+| Falha transitória       | Timeout, indisponibilidade, HTTP `429` ou HTTP `5xx`, passível de nova tentativa.                         |
+| Falha definitiva        | Erro não recuperado após o limite de tentativas ou resposta que não deve ser repetida.                    |
+| Idempotência            | Garantia de que repetir a mesma operação não duplica seus efeitos.                                        |
+| Outbox                  | Registro persistido na mesma transação do Ticket que representa uma intenção ainda não publicada na fila. |
 
 ## 6. Escopo funcional obrigatório
 
@@ -116,7 +117,7 @@ A criação concluída retorna `201 Created`, pois o ticket já existe, mesmo qu
 ### 6.3 Consulta e filtros
 
 - Lista paginada com `page` e `pageSize`.
-- `pageSize` padrão de 20 e máximo de 100.
+- `pageSize` padrão de 10 e máximo de 100.
 - Busca textual `q` em título e descrição.
 - Filtros por status e prioridade.
 - Ordenação estável por `createdAt DESC, id DESC`.
@@ -148,7 +149,7 @@ Qualquer outra transição será rejeitada com `409 Conflict`. Repetir comando q
 
 - Atualizações exigirão a versão atualmente conhecida do ticket.
 - Atualização bem-sucedida incrementa `version`.
-- Versão desatualizada retorna `409 Conflict` com erro estável.
+- Versão desatualizada retorna `412 Precondition Failed` com erro estável.
 - O cliente deve recarregar o ticket antes de tentar nova alteração.
 
 ### 6.7 Histórico
@@ -167,12 +168,12 @@ O histórico não poderá ser alterado ou removido pela API. Tentativas técnica
 
 Metas iniciais:
 
-| Prioridade | Prazo |
-| --- | ---: |
-| `critical` | 4 horas úteis |
-| `high` | 8 horas úteis |
-| `medium` | 24 horas úteis |
-| `low` | 48 horas úteis |
+| Prioridade |          Prazo |
+| ---------- | -------------: |
+| `critical` |  4 horas úteis |
+| `high`     |  8 horas úteis |
+| `medium`   | 24 horas úteis |
+| `low`      | 48 horas úteis |
 
 Regras:
 
@@ -191,13 +192,16 @@ Regras:
 Fluxo de criação:
 
 1. API valida a requisição.
-2. API persiste ticket, chave idempotente e histórico.
-3. API publica job identificado pelo ticket e versão de processamento.
-4. Worker marca processamento como `processing`.
-5. Worker obtém feriados necessários.
-6. Worker calcula e persiste `slaDueAt`.
-7. Worker marca processamento como `processed`.
-8. SPA atualiza o ticket sem F5.
+2. API abre transação PostgreSQL.
+3. API persiste ticket, chave idempotente, histórico e intenção outbox.
+4. API confirma a transação e responde sem aguardar processamento externo.
+5. Dispatcher do Worker publica job identificado pelo ticket e versão de processamento.
+6. Dispatcher marca o registro outbox como publicado.
+7. Worker marca processamento como `processing`.
+8. Worker obtém feriados necessários.
+9. Worker calcula e persiste `slaDueAt`.
+10. Worker marca processamento como `processed`.
+11. SPA atualiza o ticket sem F5.
 
 O job será idempotente. Se recebido novamente depois de concluir a mesma versão, deverá encerrar sem recalcular ou duplicar efeitos.
 
@@ -238,27 +242,33 @@ A interface conterá:
 
 A SPA usará polling periódico somente enquanto existirem itens `pending` ou `processing` visíveis. Intervalo inicial: 3 segundos. WebSocket e Server-Sent Events não serão usados nesta entrega.
 
+Rotas, conteúdo de cada página, direção visual, estados de interface, acessibilidade e cenários BDD do front estão especificados em [05-front-end.md](05-front-end.md). A página de detalhe tratará `412`/`409` como conflito visível e o formulário enviará `Idempotency-Key`.
+
 ### 6.13 API HTTP prevista
 
-| Método | Rota | Finalidade |
-| --- | --- | --- |
-| `POST` | `/tickets` | Criar ticket de forma idempotente. |
-| `GET` | `/tickets` | Listar, buscar, filtrar e paginar. |
-| `GET` | `/tickets/:id` | Consultar ticket e histórico. |
-| `PATCH` | `/tickets/:id/status` | Executar transição de status. |
-| `PATCH` | `/tickets/:id/priority` | Alterar prioridade e recalcular SLA. |
-| `POST` | `/tickets/:id/reprocess` | Reprocessar cálculo que falhou ou ficou pendente. |
-| `GET` | `/health/live` | Confirmar processo ativo. |
-| `GET` | `/health/ready` | Confirmar dependências necessárias disponíveis. |
+| Método  | Rota                     | Finalidade                                        |
+| ------- | ------------------------ | ------------------------------------------------- |
+| `POST`  | `/tickets`               | Criar ticket de forma idempotente.                |
+| `GET`   | `/tickets`               | Listar, buscar, filtrar e paginar.                |
+| `GET`   | `/tickets/:id`           | Consultar ticket e histórico.                     |
+| `PATCH` | `/tickets/:id/status`    | Executar transição de status.                     |
+| `PATCH` | `/tickets/:id/priority`  | Alterar prioridade e recalcular SLA.              |
+| `POST`  | `/tickets/:id/reprocess` | Reprocessar cálculo que falhou ou ficou pendente. |
+| `GET`   | `/health/live`           | Confirmar processo ativo.                         |
+| `GET`   | `/health/ready`          | Confirmar dependências necessárias disponíveis.   |
 
-Contratos detalhados de request, response e erros serão definidos em documento próprio antes da implementação.
+Contratos detalhados de request, response e erros estão definidos em [`docs/03-contratos-http.md`](03-contratos-http.md) e serão implementados pelos schemas Zod compartilhados.
 
 ## 7. Arquitetura dentro do escopo
 
 ### 7.1 Componentes
 
-- Frontend React.
+- Frontend React organizado por feature, começando por `features/tickets`; componentes realmente reutilizáveis ficarão em `frontend/shared`.
+- Frontend usa Vite, React Router e CSS organizado por feature.
+- TanStack Query para estado remoto e polling; estado local com React; React Hook Form para formulários.
+- Zod para schemas de transporte compartilhados e validação em runtime.
 - API Node.js com TypeScript.
+- Runtime fixado em Node 22 LTS; desenvolvimento usa `tsx` e build usa `tsc`.
 - Worker Node.js com TypeScript.
 - PostgreSQL.
 - Redis e BullMQ.
@@ -267,14 +277,19 @@ Contratos detalhados de request, response e erros serão definidos em documento 
 
 API e Worker poderão compartilhar pacotes de domínio, aplicação e infraestrutura no mesmo monorepo, mas executarão como processos separados.
 
+O monorepo terá fronteiras de primeiro nível: `frontend/`, `backend/`, `shared/`, `infra/` e `docs/`, usando pnpm Workspaces e `pnpm-lock.yaml` versionado.
+
 ### 7.2 Responsabilidades
 
 - Controller HTTP: transporte, autenticação futura e tradução de erros.
+- Schemas Zod: validação de transporte em HTTP, jobs e integrações, sem substituir regras de domínio.
 - Casos de uso: orquestração das operações.
 - Domínio: transições, prioridades, cálculo de SLA e invariantes.
 - Repositórios: persistência.
+- Driver PostgreSQL: `pg` com pool; cliente HTTP externo: `fetch` com `AbortController`.
 - Adapter de feriados: comunicação externa.
-- Produtor e consumidor BullMQ: transporte assíncrono.
+- Dispatcher de outbox: publicação confiável de intenções persistidas.
+- Produtor e consumidor BullMQ: transporte e execução assíncronos.
 - React: interação e representação de estados; nenhuma regra crítica existirá somente no navegador.
 
 ### 7.3 Observabilidade mínima
@@ -296,6 +311,7 @@ API e Worker poderão compartilhar pacotes de domínio, aplicação e infraestru
 - Nenhum segredo versionado.
 - Mensagens externas sem stack trace, SQL ou conteúdo sensível.
 - Dependências avaliadas antes da entrega.
+- Controles, evidências e riscos residuais estão definidos em [`docs/02-seguranca-owasp.md`](02-seguranca-owasp.md).
 
 Autenticação e autorização não serão implementadas. Essa limitação deverá aparecer no README e impede afirmar que o histórico identifica usuários reais.
 
@@ -326,16 +342,18 @@ Autenticação e autorização não serão implementadas. Essa limitação dever
 
 ### 9.1 Persistência e publicação na fila
 
-Banco e Redis não compartilham transação. Nesta primeira versão, a API persiste e depois publica. Uma queda exatamente entre essas operações pode deixar ticket `pending` sem job.
+PostgreSQL e Redis não compartilham transação. A solução usará Transactional Outbox: Ticket, histórico, idempotência e intenção de publicação serão persistidos na mesma transação PostgreSQL. Dispatcher publicará no BullMQ depois do commit.
 
-Mitigação da entrega:
+Se Redis estiver indisponível, o registro outbox permanecerá pendente. Se o processo cair depois da publicação e antes da confirmação, o mesmo job poderá ser publicado novamente; `jobId` determinístico e Worker idempotente impedirão efeitos duplicados.
 
-- Job idempotente.
-- Endpoint manual de reprocessamento.
-- Estado pendente visível.
-- Risco documentado e coberto por teste do comportamento conhecido.
+O Dispatcher usará estados `pending`, `processing` e `published`, com `locked_until` para lease recuperável. O padrão será polling de 1 segundo, lote de 10 registros e lease de 30 segundos, todos configuráveis.
 
-Evolução recomendada: Transactional Outbox com dispatcher e reconciliação automática. Não será incluída inicialmente para preservar o prazo.
+Trade-offs:
+
+- Mais uma tabela e rotina de dispatcher.
+- Mais testes de recuperação.
+- Garantia de não perder intenção de processamento após commit.
+- PostgreSQL continua fonte de verdade; Redis continua transporte.
 
 ### 9.2 Polling
 
@@ -430,6 +448,18 @@ Feature: Asynchronous SLA processing
     Then the processing status becomes "processed"
     And the SLA due date is calculated using business hours
     And the ticket remains available through the API
+
+  @integration
+  Scenario: Preserve processing intent when Redis is unavailable
+    Given PostgreSQL is available
+    And Redis is unavailable
+    When the operator creates a valid ticket
+    Then the ticket and its outbox record are committed in one transaction
+    And the ticket remains with processing status "pending"
+    When Redis becomes available again
+    And the dispatcher runs
+    Then the pending outbox record is published as a processing job
+    And the outbox record is marked as published
 
   @integration
   Scenario: Retry after a transient provider failure
@@ -595,7 +625,7 @@ Feature: Ticket priority management
     Given two clients loaded version 3 of the same ticket
     And the first client successfully updates the ticket to version 4
     When the second client submits an update using version 3
-    Then the API responds with status 409
+    Then the API responds with status 412
     And the first client change is preserved
     And no history is created for the rejected update
 ```
@@ -703,6 +733,8 @@ Feature: Reproducible local execution
 
 ### 11.1 Testes unitários obrigatórios
 
+Ferramenta: **Vitest**.
+
 - Matriz completa de transições de status.
 - Cálculo de SLA dentro e fora do horário útil.
 - Finais de semana e feriados.
@@ -711,6 +743,8 @@ Feature: Reproducible local execution
 - Idempotência do handler do Worker.
 
 ### 11.2 Testes de integração obrigatórios
+
+Ferramentas: **Vitest** e `fastify.inject` para as rotas, sem abrir porta TCP.
 
 - Criação e replay por `Idempotency-Key`.
 - Validação e ausência de efeitos em entradas inválidas.
@@ -722,6 +756,8 @@ Feature: Reproducible local execution
 - Reprocessamento.
 
 ### 11.3 Testes da interface
+
+Ferramenta: **Playwright** para o caminho crítico da SPA.
 
 - Formulário válido e inválido.
 - Exibição de estados `pending`, `processed` e `failed`.
@@ -750,8 +786,11 @@ Testes automatizados não chamarão a BrasilAPI real. A integração real será 
 - README principal.
 - Respostas das sete perguntas abertas, com máximo de dez linhas cada.
 - Instruções de execução e diagnóstico.
+- Estratégia de dados de demonstração, testes e simulação de falhas.
+- Plano de escala e estratégia de dados em [`docs/06-estrategia-de-dados-e-escala.md`](06-estrategia-de-dados-e-escala.md).
 - Arquitetura e fluxo assíncrono.
 - Contratos HTTP e catálogo de erros.
+- Matriz OWASP Top 10:2025 com controles e riscos residuais.
 - Decisões arquiteturais e trade-offs.
 - Estratégia de testes.
 - Limitações conhecidas.
@@ -789,19 +828,9 @@ Entrega será considerada pronta quando:
 - Limitações e decisões forem descritas honestamente.
 - Nenhum item declarado fora do escopo for necessário para o fluxo principal.
 
-## 14. Decisões ainda abertas
+## 14. Decisões encerradas
 
-Estas escolhas serão fechadas antes da implementação e registradas em ADRs curtos:
-
-1. Framework HTTP: NestJS, Fastify ou Express.
-2. Biblioteca de persistência e migrations.
-3. Organização exata do monorepo.
-4. Bibliotecas de testes e estratégia de containers durante integração.
-5. Formato definitivo do catálogo de erros.
-6. Mecanismo concreto de controle de versão nas requisições: header `If-Match` ou campo no corpo.
-7. Comportamento HTTP exato do replay de `Idempotency-Key`.
-
-Nenhuma dessas decisões altera o comportamento de negócio e os critérios de aceite definidos neste documento.
+As decisões arquiteturais e de contrato foram consolidadas na [`ADR-001`](adr/001-stack-tecnologica-e-arquitetura.md), no [`contrato HTTP`](03-contratos-http.md), na [`matriz OWASP`](02-seguranca-owasp.md) e no [`checklist pré-código`](04-checklist-pre-codigo.md). A implementação pode começar; mudanças que alterem fronteiras ou contratos devem gerar nova decisão documentada.
 
 ## 15. Critério para aceitar mudanças de escopo
 
