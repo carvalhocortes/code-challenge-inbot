@@ -15,7 +15,7 @@ ADRs registram decisões difíceis de reverter, surpreendentes para quem lê o c
 | `docs/01-escopo-entrega-e-bdd.md` | Escopo e comportamento | Define o que o produto faz e como validar. |
 | `docs/02-seguranca-owasp.md` | Matriz de controles | Lista evidências, riscos e cenários de segurança. |
 | `docs/03-contratos-http.md` | Contrato de integração | Define requests, responses, headers e erros consumidos por clientes. |
-| `docs/04-checklist-pre-codigo.md` | Plano de execução | Organiza tarefas e ordem de implementação. |
+| `docs/04-checklist-pre-codigo.md` | Plano de execução | Organiza incrementos, dependências e critérios de aceite da implementação. |
 | `docs/05-front-end.md` | Especificação de experiência | Define páginas, conteúdo, estados e critérios de aceite visual. |
 | `docs/06-estrategia-de-dados-e-escala.md` | Operação e evolução | Define seed, demonstração, testes e caminho de escala. |
 | `CONTEXT.md` | Glossário | Mantém linguagem do domínio sem detalhes de implementação. |
