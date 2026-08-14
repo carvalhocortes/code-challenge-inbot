@@ -4,8 +4,11 @@ import { buildApi } from "./app.js";
 const config = readRuntimeConfig();
 const app = buildApi();
 
-async function close(): Promise<void> {
-  await app.close();
+function close(): void {
+  void app.close().catch((error: unknown) => {
+    app.log.error(error, "Failed to close API server");
+    process.exitCode = 1;
+  });
 }
 
 process.once("SIGINT", close);
