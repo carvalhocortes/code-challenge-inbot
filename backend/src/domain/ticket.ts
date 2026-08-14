@@ -80,12 +80,12 @@ export function changeTicketPriority(
   nextPriority: TicketPriority,
   clock: Clock,
 ): TicketPriorityChange {
-  if (ticket.status === "closed") {
-    throw new TicketDomainError("ticket.closed");
-  }
-
   if (ticket.priority === nextPriority) {
     return { kind: "noop", ticket };
+  }
+
+  if (ticket.status === "closed") {
+    throw new TicketDomainError("ticket.closed");
   }
 
   return {
