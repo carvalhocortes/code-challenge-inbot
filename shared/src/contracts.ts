@@ -36,9 +36,11 @@ export const createTicketRequestSchema = z.object({
 });
 export type CreateTicketRequest = z.infer<typeof createTicketRequestSchema>;
 
-export const updateTicketStatusRequestSchema = z.object({
-  status: ticketStatusSchema,
-});
+export const updateTicketStatusRequestSchema = z
+  .object({
+    status: ticketStatusSchema,
+  })
+  .strict();
 export type UpdateTicketStatusRequest = z.infer<
   typeof updateTicketStatusRequestSchema
 >;
