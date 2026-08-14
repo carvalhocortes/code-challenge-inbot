@@ -589,7 +589,7 @@ Os detalhes de implementação e validação estão separados para manter esta A
 - [Escopo e BDD](../01-escopo-entrega-e-bdd.md)
 - [Contratos HTTP e catálogo de erros](../03-contratos-http.md)
 - [Matriz OWASP Top 10:2025](../02-seguranca-owasp.md)
-- [Checklist pré-código](../04-checklist-pre-codigo.md)
+- [Plano de implementação](../04-checklist-pre-codigo.md)
 
 Complementos aceitos no grilling: Node 22 LTS com imagem `node:22-bookworm-slim`, Vite, React Router, `pg`, `fetch` com timeout, Pino com redaction, CSS por feature, adapter Zod manual no Fastify, `@hookform/resolvers/zod`, migrations em serviço one-shot, integração com PostgreSQL/Redis reais nos testes e graceful shutdown.
 

@@ -53,14 +53,14 @@ Estrutura planejada: `frontend/`, `backend/`, `shared/`, `infra/` e `docs/`. O m
 - [ADR-001 - Stack tecnológica e arquitetura](docs/adr/001-stack-tecnologica-e-arquitetura.md)
 - [Contratos HTTP e catálogo de erros](docs/03-contratos-http.md)
 - [Matriz de segurança OWASP](docs/02-seguranca-owasp.md)
-- [Checklist pré-código](docs/04-checklist-pre-codigo.md)
+- [Plano de implementação](docs/04-checklist-pre-codigo.md)
 - [Front-end: experiência, páginas e critérios de aceite](docs/05-front-end.md)
 - [Estratégia de dados, demonstração e escala](docs/06-estrategia-de-dados-e-escala.md)
 - [Índice e governança de ADRs](docs/adr/README.md)
 - [Glossário do domínio](CONTEXT.md)
 - [Skills e assistência usadas](.agents/README.md)
 
-BDD, contratos HTTP, checklist, front-end e plano de escala são especificações ou planos operacionais. Decisões difíceis de reverter ficam em [`docs/adr/`](docs/adr/README.md); o glossário permanece em `CONTEXT.md`.
+BDD, contratos HTTP, plano de implementação, front-end e plano de escala são especificações ou planos operacionais. Decisões difíceis de reverter ficam em [`docs/adr/`](docs/adr/README.md); o glossário permanece em `CONTEXT.md`.
 
 ## Uso de IA
 

@@ -830,7 +830,7 @@ Entrega será considerada pronta quando:
 
 ## 14. Decisões encerradas
 
-As decisões arquiteturais e de contrato foram consolidadas na [`ADR-001`](adr/001-stack-tecnologica-e-arquitetura.md), no [`contrato HTTP`](03-contratos-http.md), na [`matriz OWASP`](02-seguranca-owasp.md) e no [`checklist pré-código`](04-checklist-pre-codigo.md). A implementação pode começar; mudanças que alterem fronteiras ou contratos devem gerar nova decisão documentada.
+As decisões arquiteturais e de contrato foram consolidadas na [`ADR-001`](adr/001-stack-tecnologica-e-arquitetura.md), no [`contrato HTTP`](03-contratos-http.md), na [`matriz OWASP`](02-seguranca-owasp.md) e no [`plano de implementação`](04-checklist-pre-codigo.md). A implementação pode começar; mudanças que alterem fronteiras ou contratos devem gerar nova decisão documentada.
 
 ## 15. Critério para aceitar mudanças de escopo
 
