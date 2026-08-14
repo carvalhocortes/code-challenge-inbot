@@ -1,4 +1,4 @@
-export type TicketPriority = "critical" | "high" | "medium" | "low";
+import type { TicketPriority } from "./ticket.js";
 
 const slaHoursByPriority: Record<TicketPriority, number> = {
   critical: 4,
