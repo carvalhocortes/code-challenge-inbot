@@ -203,3 +203,80 @@ describe("GET /tickets", () => {
     });
   });
 });
+
+describe("GET /tickets/:id", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("returns the Ticket detail and immutable history with its ETag", async () => {
+    const getTicketDetail = vi.fn(async () => ({
+      ticket: {
+        id: ticketId,
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "high" as const,
+        status: "open" as const,
+        processingStatus: "pending" as const,
+        slaDueAt: null,
+        version: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      history: [
+        {
+          id: "81f4b41c-7e68-4ca4-912d-e7e2fa523c37",
+          type: "created" as const,
+          previousValue: null,
+          nextValue: "open",
+          source: "operator" as const,
+          createdAt,
+        },
+      ],
+    }));
+    const dependencies: ApiDependencies = {
+      tickets: { getTicketDetail } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/tickets/${ticketId}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers.etag).toBe('"1"');
+    expect(response.json()).toEqual({
+      id: ticketId,
+      title: "Acesso ao sistema indisponível",
+      description: "O operador não consegue acessar o sistema desde as 09:00.",
+      requesterEmail: "operador@example.com",
+      priority: "high",
+      status: "open",
+      processingStatus: "pending",
+      slaDueAt: null,
+      version: 1,
+      createdAt: "2026-08-14T12:00:00.000Z",
+      updatedAt: "2026-08-14T12:00:00.000Z",
+      history: [
+        {
+          id: "81f4b41c-7e68-4ca4-912d-e7e2fa523c37",
+          type: "created",
+          previousValue: null,
+          nextValue: "open",
+          source: "operator",
+          createdAt: "2026-08-14T12:00:00.000Z",
+        },
+      ],
+    });
+    expect(getTicketDetail).toHaveBeenCalledWith(ticketId);
+  });
+});

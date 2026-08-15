@@ -4,6 +4,7 @@ import {
   createTicketRequestSchema,
   listTicketsQuerySchema,
   type ListTicketsResponse,
+  type TicketDetailResponse,
   type TicketResponse,
 } from "@inbot/shared";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -14,6 +15,7 @@ import type { Ticket } from "../domain/ticket.js";
 import {
   type CreateTicketWithProcessingIntentCommand,
   type CreateTicketWithProcessingIntentResult,
+  type TicketDetail,
   type TicketList,
   TicketRepository,
 } from "../infrastructure/database/ticket-repository.js";
@@ -32,6 +34,7 @@ export interface ApiDependencies {
     listTickets(
       query: Parameters<TicketRepository["listTickets"]>[0],
     ): Promise<TicketList>;
+    getTicketDetail(ticketId: string): Promise<TicketDetail>;
   };
   createTicketId(): string;
   checkReadiness(): Promise<void>;
@@ -147,6 +150,26 @@ export function buildApi(
 
     return reply.send(response);
   });
+
+  app.get<{ Params: { id: string } }>(
+    "/tickets/:id",
+    async (request, reply) => {
+      const result = await dependencies.tickets.getTicketDetail(
+        request.params.id,
+      );
+      const response: TicketDetailResponse = {
+        ...toTicketResponse(result.ticket),
+        history: result.history.map((entry) => ({
+          ...entry,
+          createdAt: entry.createdAt.toISOString(),
+        })),
+      };
+
+      return reply
+        .header("etag", etagFor(result.ticket.version))
+        .send(response);
+    },
+  );
 
   app.get("/health/live", async () => ({ status: "live" }));
 
