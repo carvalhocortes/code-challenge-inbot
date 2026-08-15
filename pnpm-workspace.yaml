@@ -6,4 +6,5 @@ packages:
 allowBuilds:
   cpu-features: false
   esbuild: true
+  msgpackr-extract: false
   ssh2: false
