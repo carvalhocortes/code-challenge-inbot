@@ -7,18 +7,31 @@
     "dev": "vite",
     "build": "tsc --project tsconfig.json && vite build",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@hookform/resolvers": "5.8.0",
+    "@inbot/shared": "workspace:*",
+    "@tanstack/react-query": "5.101.4",
     "@vitejs/plugin-react": "4.3.4",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "react-hook-form": "7.85.0",
+    "react-router-dom": "7.18.2",
     "vite": "6.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.4",
     "@types/node": "22.10.2",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",
-    "typescript": "5.7.3"
+    "jsdom": "30.0.1",
+    "typescript": "5.7.3",
+    "vitest": "3.2.4"
   }
 }
