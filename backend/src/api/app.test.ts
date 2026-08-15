@@ -385,3 +385,61 @@ describe("PATCH /tickets/:id/status", () => {
     });
   });
 });
+
+describe("PATCH /tickets/:id/priority", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("changes priority with the current ETag and schedules processing again", async () => {
+    const changeTicketPriority = vi.fn(async () => ({
+      kind: "changed" as const,
+      previousPriority: "high" as const,
+      ticket: {
+        id: ticketId,
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "critical" as const,
+        status: "open" as const,
+        processingStatus: "pending" as const,
+        slaDueAt: null,
+        version: 2,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    }));
+    const dependencies: ApiDependencies = {
+      tickets: { changeTicketPriority } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/tickets/${ticketId}/priority`,
+      headers: { "if-match": '"1"' },
+      payload: { priority: "critical" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers.etag).toBe('"2"');
+    expect(response.json()).toMatchObject({
+      id: ticketId,
+      priority: "critical",
+      processingStatus: "pending",
+      version: 2,
+    });
+    expect(changeTicketPriority).toHaveBeenCalledWith({
+      ticketId,
+      expectedVersion: 1,
+      priority: "critical",
+    });
+  });
+});

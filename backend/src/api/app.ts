@@ -6,6 +6,7 @@ import {
   type ListTicketsResponse,
   type TicketDetailResponse,
   type TicketResponse,
+  updateTicketPriorityRequestSchema,
   updateTicketStatusRequestSchema,
 } from "@inbot/shared";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -16,6 +17,7 @@ import { TicketDomainError, type Ticket } from "../domain/ticket.js";
 import {
   type CreateTicketWithProcessingIntentCommand,
   type CreateTicketWithProcessingIntentResult,
+  type ChangeTicketPriorityCommand,
   IdempotencyKeyReusedError,
   type TicketDetail,
   type TicketList,
@@ -43,6 +45,9 @@ export interface ApiDependencies {
     updateTicketStatus(
       command: UpdateTicketStatusCommand,
     ): ReturnType<TicketRepository["updateTicketStatus"]>;
+    changeTicketPriority(
+      command: ChangeTicketPriorityCommand,
+    ): ReturnType<TicketRepository["changeTicketPriority"]>;
   };
   createTicketId(): string;
   checkReadiness(): Promise<void>;
@@ -236,6 +241,58 @@ export function buildApi(
         ticketId: request.params.id,
         expectedVersion,
         status: parsedBody.data.status,
+      });
+
+      return reply
+        .header("etag", etagFor(result.ticket.version))
+        .send(toTicketResponse(result.ticket));
+    },
+  );
+
+  app.patch<{ Params: { id: string } }>(
+    "/tickets/:id/priority",
+    async (request, reply) => {
+      const expectedVersion = parseIfMatch(request.headers["if-match"]);
+
+      if (expectedVersion === undefined) {
+        return reply.type("application/problem+json").code(428).send({
+          type: "/problems/ticket-precondition-required",
+          title: "Ticket precondition required",
+          status: 428,
+          detail: "O header If-Match é obrigatório.",
+          instance: request.url,
+          code: "ticket.precondition_required",
+          requestId: request.id,
+        });
+      }
+
+      const parsedBody = updateTicketPriorityRequestSchema.safeParse(
+        request.body,
+      );
+
+      if (!parsedBody.success) {
+        return reply
+          .type("application/problem+json")
+          .code(422)
+          .send({
+            type: "/problems/request-validation-failed",
+            title: "Request validation failed",
+            status: 422,
+            detail: "A requisição não atende ao contrato.",
+            instance: request.url,
+            code: "request.validation_failed",
+            requestId: request.id,
+            errors: parsedBody.error.issues.map((issue) => ({
+              field: issue.path.join(".") || "body",
+              reason: validationReason(issue.code),
+            })),
+          });
+      }
+
+      const result = await dependencies.tickets.changeTicketPriority({
+        ticketId: request.params.id,
+        expectedVersion,
+        priority: parsedBody.data.priority,
       });
 
       return reply
