@@ -443,3 +443,53 @@ describe("PATCH /tickets/:id/priority", () => {
     });
   });
 });
+
+describe("POST /tickets/:id/reprocess", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("reprocesses a failed Ticket with a new observable version", async () => {
+    const reprocessTicket = vi.fn(async () => ({
+      id: ticketId,
+      title: "Acesso ao sistema indisponível",
+      description: "O operador não consegue acessar o sistema desde as 09:00.",
+      requesterEmail: "operador@example.com",
+      priority: "high" as const,
+      status: "open" as const,
+      processingStatus: "pending" as const,
+      slaDueAt: null,
+      version: 3,
+      createdAt,
+      updatedAt: createdAt,
+    }));
+    const dependencies: ApiDependencies = {
+      tickets: { reprocessTicket } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tickets/${ticketId}/reprocess`,
+      headers: { "if-match": '"2"' },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.headers.etag).toBe('"3"');
+    expect(response.json()).toMatchObject({
+      id: ticketId,
+      processingStatus: "pending",
+      version: 3,
+    });
+    expect(reprocessTicket).toHaveBeenCalledWith({
+      ticketId,
+      expectedVersion: 2,
+    });
+  });
+});

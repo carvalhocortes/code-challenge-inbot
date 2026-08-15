@@ -23,6 +23,8 @@ import {
   type TicketList,
   type UpdateTicketStatusCommand,
   TicketNotFoundError,
+  type ReprocessTicketCommand,
+  TicketReprocessNotAllowedError,
   TicketRepository,
   TicketVersionConflictError,
 } from "../infrastructure/database/ticket-repository.js";
@@ -48,6 +50,7 @@ export interface ApiDependencies {
     changeTicketPriority(
       command: ChangeTicketPriorityCommand,
     ): ReturnType<TicketRepository["changeTicketPriority"]>;
+    reprocessTicket(command: ReprocessTicketCommand): Promise<Ticket>;
   };
   createTicketId(): string;
   checkReadiness(): Promise<void>;
@@ -249,6 +252,35 @@ export function buildApi(
     },
   );
 
+  app.post<{ Params: { id: string } }>(
+    "/tickets/:id/reprocess",
+    async (request, reply) => {
+      const expectedVersion = parseIfMatch(request.headers["if-match"]);
+
+      if (expectedVersion === undefined) {
+        return reply.type("application/problem+json").code(428).send({
+          type: "/problems/ticket-precondition-required",
+          title: "Ticket precondition required",
+          status: 428,
+          detail: "O header If-Match é obrigatório.",
+          instance: request.url,
+          code: "ticket.precondition_required",
+          requestId: request.id,
+        });
+      }
+
+      const ticket = await dependencies.tickets.reprocessTicket({
+        ticketId: request.params.id,
+        expectedVersion,
+      });
+
+      return reply
+        .header("etag", etagFor(ticket.version))
+        .code(202)
+        .send(toTicketResponse(ticket));
+    },
+  );
+
   app.patch<{ Params: { id: string } }>(
     "/tickets/:id/priority",
     async (request, reply) => {
@@ -407,6 +439,16 @@ function problemFor(error: unknown):
       status: 409,
       detail: "A chave de idempotência foi usada com outro payload.",
       code: "idempotency.key_reused",
+    };
+  }
+
+  if (error instanceof TicketReprocessNotAllowedError) {
+    return {
+      type: "/problems/ticket-reprocess-not-allowed",
+      title: "Ticket reprocess not allowed",
+      status: 409,
+      detail: "O Ticket não pode ser reprocessado no estado atual.",
+      code: "ticket.reprocess_not_allowed",
     };
   }
 

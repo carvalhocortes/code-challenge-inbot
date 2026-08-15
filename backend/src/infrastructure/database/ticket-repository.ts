@@ -46,6 +46,11 @@ export interface ChangeTicketPriorityCommand {
   priority: TicketPriority;
 }
 
+export interface ReprocessTicketCommand {
+  ticketId: string;
+  expectedVersion: number;
+}
+
 export interface TicketList {
   items: Ticket[];
   meta: {
@@ -88,6 +93,13 @@ export class TicketVersionConflictError extends Error {
   constructor() {
     super("ticket.version_conflict");
     this.name = "TicketVersionConflictError";
+  }
+}
+
+export class TicketReprocessNotAllowedError extends Error {
+  constructor() {
+    super("ticket.reprocess_not_allowed");
+    this.name = "TicketReprocessNotAllowedError";
   }
 }
 
@@ -386,6 +398,72 @@ export class TicketRepository {
       .orderBy(asc(ticketHistories.createdAt), asc(ticketHistories.id));
 
     return { ticket: toDomainTicket(ticket), history };
+  }
+
+  async reprocessTicket(command: ReprocessTicketCommand): Promise<Ticket> {
+    return this.db.transaction(async (transaction) => {
+      const records = await transaction
+        .select()
+        .from(tickets)
+        .where(eq(tickets.id, command.ticketId))
+        .limit(1);
+      const current = records[0];
+
+      if (current === undefined) {
+        throw new TicketNotFoundError();
+      }
+
+      if (current.version !== command.expectedVersion) {
+        throw new TicketVersionConflictError();
+      }
+
+      if (
+        current.processingStatus !== "failed" &&
+        current.processingStatus !== "pending"
+      ) {
+        throw new TicketReprocessNotAllowedError();
+      }
+
+      const now = this.clock.now();
+      const nextVersion = current.version + 1;
+      const updated = await transaction
+        .update(tickets)
+        .set({
+          processingStatus: "pending",
+          slaDueAt: null,
+          version: nextVersion,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(tickets.id, command.ticketId),
+            eq(tickets.version, command.expectedVersion),
+          ),
+        )
+        .returning();
+
+      const ticket = updated[0];
+
+      if (ticket === undefined) {
+        throw new TicketVersionConflictError();
+      }
+
+      await transaction.insert(outboxMessages).values({
+        id: randomUUID(),
+        ticketId: command.ticketId,
+        processingVersion: nextVersion,
+        type: "ticket_sla",
+        payload: { ticketId: command.ticketId, processingVersion: nextVersion },
+        status: "pending",
+        attempts: 0,
+        lockedUntil: null,
+        publishedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return toDomainTicket(ticket);
+    });
   }
 }
 
