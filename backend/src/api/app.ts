@@ -42,8 +42,41 @@ export function buildApi(
     reply.header("x-request-id", request.id);
   });
 
+  app.setErrorHandler((error, request, reply) => {
+    app.log.error(error, "Unhandled API error");
+    return reply.type("application/problem+json").code(500).send({
+      type: "/problems/internal-unexpected",
+      title: "Internal server error",
+      status: 500,
+      detail: "Ocorreu um erro inesperado.",
+      instance: request.url,
+      code: "internal.unexpected",
+      requestId: request.id,
+    });
+  });
+
   app.post("/tickets", async (request, reply) => {
-    const ticket = createTicketRequestSchema.parse(request.body);
+    const parsedTicket = createTicketRequestSchema.safeParse(request.body);
+
+    if (!parsedTicket.success) {
+      return reply
+        .type("application/problem+json")
+        .code(422)
+        .send({
+          type: "/problems/request-validation-failed",
+          title: "Request validation failed",
+          status: 422,
+          detail: "A requisição não atende ao contrato.",
+          instance: request.url,
+          code: "request.validation_failed",
+          requestId: request.id,
+          errors: parsedTicket.error.issues.map((issue) => ({
+            field: issue.path.join(".") || "body",
+            reason: validationReason(issue.code),
+          })),
+        });
+    }
+
     const idempotencyKey = request.headers["idempotency-key"];
 
     if (typeof idempotencyKey !== "string" || idempotencyKey.trim() === "") {
@@ -61,7 +94,7 @@ export function buildApi(
     const result = await dependencies.tickets.createTicketWithProcessingIntent({
       ticketId: dependencies.createTicketId(),
       idempotencyKey,
-      ticket,
+      ticket: parsedTicket.data,
     });
 
     reply.header("etag", etagFor(result.ticket.version));
@@ -118,4 +151,16 @@ function toTicketResponse(ticket: Ticket): TicketResponse {
     createdAt: ticket.createdAt.toISOString(),
     updatedAt: ticket.updatedAt.toISOString(),
   };
+}
+
+function validationReason(issueCode: string): string {
+  if (issueCode === "too_small" || issueCode === "too_big") {
+    return "invalid_length";
+  }
+
+  if (issueCode === "invalid_string") {
+    return "invalid_format";
+  }
+
+  return "invalid_value";
 }

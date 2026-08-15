@@ -83,4 +83,52 @@ describe("POST /tickets", () => {
       },
     });
   });
+
+  it("returns a safe validation problem before creating a Ticket", async () => {
+    const createTicketWithProcessingIntent = vi.fn();
+    const dependencies: ApiDependencies = {
+      tickets: { createTicketWithProcessingIntent },
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "idempotency-key": "create-002",
+        "x-request-id": "request-002",
+      },
+      payload: {
+        title: "A",
+        description: "curta",
+        requesterEmail: "not-an-email",
+        priority: "urgent",
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toEqual({
+      type: "/problems/request-validation-failed",
+      title: "Request validation failed",
+      status: 422,
+      detail: "A requisição não atende ao contrato.",
+      instance: "/tickets",
+      code: "request.validation_failed",
+      requestId: "request-002",
+      errors: [
+        { field: "title", reason: "invalid_length" },
+        { field: "description", reason: "invalid_length" },
+        { field: "requesterEmail", reason: "invalid_format" },
+        { field: "priority", reason: "invalid_value" },
+      ],
+    });
+    expect(createTicketWithProcessingIntent).not.toHaveBeenCalled();
+  });
 });
