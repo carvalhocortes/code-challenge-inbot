@@ -49,6 +49,10 @@ services:
     command: ["pnpm", "--filter", "@inbot/backend", "start:api"]
     environment:
       API_PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      REQUEST_BODY_LIMIT_BYTES: ${REQUEST_BODY_LIMIT_BYTES:-1048576}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
     ports:

@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 
+import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import {
   createTicketRequestSchema,
   listTicketsQuerySchema,
@@ -10,9 +13,9 @@ import {
   updateTicketStatusRequestSchema,
 } from "@inbot/shared";
 import { drizzle } from "drizzle-orm/node-postgres";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
-import { readRuntimeConfig } from "../config.js";
+import { readRuntimeConfig, type RuntimeConfig } from "../config.js";
 import { TicketDomainError, type Ticket } from "../domain/ticket.js";
 import {
   type CreateTicketWithProcessingIntentCommand,
@@ -57,13 +60,50 @@ export interface ApiDependencies {
   close(): Promise<void>;
 }
 
+export interface ApiOptions {
+  bodyLimit: number;
+  corsOrigin: string;
+  rateLimitMax: number;
+  rateLimitWindowMs: number;
+}
+
 export function buildApi(
-  dependencies: ApiDependencies = createApiDependencies(),
+  dependencies?: ApiDependencies,
+  options?: ApiOptions,
 ): FastifyInstance {
+  const config = dependencies === undefined ? readRuntimeConfig() : undefined;
+  const resolvedDependencies =
+    dependencies ?? createApiDependencies(config as RuntimeConfig);
+  const apiOptions = options ?? optionsFromConfig(config);
   const app = Fastify({
-    logger: true,
+    bodyLimit: apiOptions.bodyLimit,
+    logger: {
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "req.body.requesterEmail",
+          "req.body.description",
+        ],
+        remove: true,
+      },
+    },
     requestIdHeader: "x-request-id",
     genReqId: () => randomUUID(),
+  });
+
+  void app.register(cors, {
+    origin: apiOptions.corsOrigin,
+    exposedHeaders: ["etag", "idempotency-replayed", "x-request-id"],
+  });
+  void app.register(helmet);
+  void app.register(rateLimit, {
+    global: false,
+    max: apiOptions.rateLimitMax,
+    timeWindow: apiOptions.rateLimitWindowMs,
+  });
+  app.after(() => {
+    app.addHook("onRequest", app.rateLimit());
   });
 
   app.addHook("onRequest", async (request, reply) => {
@@ -84,7 +124,10 @@ export function buildApi(
         });
     }
 
-    app.log.error(error, "Unhandled API error");
+    app.log.error(
+      { errorName: errorName(error), requestId: request.id },
+      "Unhandled API error",
+    );
     return reply.type("application/problem+json").code(500).send({
       type: "/problems/internal-unexpected",
       title: "Internal server error",
@@ -121,7 +164,7 @@ export function buildApi(
     const idempotencyKey = request.headers["idempotency-key"];
 
     if (typeof idempotencyKey !== "string" || idempotencyKey.trim() === "") {
-      return reply.code(400).send({
+      return reply.type("application/problem+json").code(400).send({
         type: "/problems/idempotency-key-required",
         title: "Idempotency key required",
         status: 400,
@@ -132,11 +175,12 @@ export function buildApi(
       });
     }
 
-    const result = await dependencies.tickets.createTicketWithProcessingIntent({
-      ticketId: dependencies.createTicketId(),
-      idempotencyKey,
-      ticket: parsedTicket.data,
-    });
+    const result =
+      await resolvedDependencies.tickets.createTicketWithProcessingIntent({
+        ticketId: resolvedDependencies.createTicketId(),
+        idempotencyKey,
+        ticket: parsedTicket.data,
+      });
 
     reply.header("etag", etagFor(result.ticket.version));
 
@@ -144,9 +188,7 @@ export function buildApi(
       reply.header("idempotency-replayed", "true");
     }
 
-    return reply
-      .code(result.kind === "created" ? 201 : 200)
-      .send(toTicketResponse(result.ticket));
+    return reply.code(201).send(toTicketResponse(result.ticket));
   });
 
   app.get("/tickets", async (request, reply) => {
@@ -171,7 +213,9 @@ export function buildApi(
         });
     }
 
-    const result = await dependencies.tickets.listTickets(parsedQuery.data);
+    const result = await resolvedDependencies.tickets.listTickets(
+      parsedQuery.data,
+    );
     const response: ListTicketsResponse = {
       items: result.items.map(toTicketResponse),
       meta: result.meta,
@@ -183,7 +227,11 @@ export function buildApi(
   app.get<{ Params: { id: string } }>(
     "/tickets/:id",
     async (request, reply) => {
-      const result = await dependencies.tickets.getTicketDetail(
+      if (!isUuid(request.params.id)) {
+        return sendInvalidTicketIdProblem(request.url, request.id, reply);
+      }
+
+      const result = await resolvedDependencies.tickets.getTicketDetail(
         request.params.id,
       );
       const response: TicketDetailResponse = {
@@ -203,6 +251,10 @@ export function buildApi(
   app.patch<{ Params: { id: string } }>(
     "/tickets/:id/status",
     async (request, reply) => {
+      if (!isUuid(request.params.id)) {
+        return sendInvalidTicketIdProblem(request.url, request.id, reply);
+      }
+
       const expectedVersion = parseIfMatch(request.headers["if-match"]);
 
       if (expectedVersion === undefined) {
@@ -240,7 +292,7 @@ export function buildApi(
           });
       }
 
-      const result = await dependencies.tickets.updateTicketStatus({
+      const result = await resolvedDependencies.tickets.updateTicketStatus({
         ticketId: request.params.id,
         expectedVersion,
         status: parsedBody.data.status,
@@ -255,6 +307,10 @@ export function buildApi(
   app.post<{ Params: { id: string } }>(
     "/tickets/:id/reprocess",
     async (request, reply) => {
+      if (!isUuid(request.params.id)) {
+        return sendInvalidTicketIdProblem(request.url, request.id, reply);
+      }
+
       const expectedVersion = parseIfMatch(request.headers["if-match"]);
 
       if (expectedVersion === undefined) {
@@ -269,7 +325,7 @@ export function buildApi(
         });
       }
 
-      const ticket = await dependencies.tickets.reprocessTicket({
+      const ticket = await resolvedDependencies.tickets.reprocessTicket({
         ticketId: request.params.id,
         expectedVersion,
       });
@@ -284,6 +340,10 @@ export function buildApi(
   app.patch<{ Params: { id: string } }>(
     "/tickets/:id/priority",
     async (request, reply) => {
+      if (!isUuid(request.params.id)) {
+        return sendInvalidTicketIdProblem(request.url, request.id, reply);
+      }
+
       const expectedVersion = parseIfMatch(request.headers["if-match"]);
 
       if (expectedVersion === undefined) {
@@ -321,7 +381,7 @@ export function buildApi(
           });
       }
 
-      const result = await dependencies.tickets.changeTicketPriority({
+      const result = await resolvedDependencies.tickets.changeTicketPriority({
         ticketId: request.params.id,
         expectedVersion,
         priority: parsedBody.data.priority,
@@ -337,23 +397,33 @@ export function buildApi(
 
   app.get("/health/ready", async (_request, reply) => {
     try {
-      await dependencies.checkReadiness();
+      await resolvedDependencies.checkReadiness();
       return { status: "ready" };
     } catch (error) {
-      app.log.error(error, "Runtime dependency is not ready");
-      return reply.code(503).send({ status: "not_ready" });
+      app.log.error(
+        { errorName: errorName(error), requestId: _request.id },
+        "Runtime dependency is not ready",
+      );
+      return reply.type("application/problem+json").code(503).send({
+        type: "/problems/dependency-unavailable",
+        title: "Dependency unavailable",
+        status: 503,
+        detail: "Uma dependência necessária não está disponível.",
+        instance: "/health/ready",
+        code: "dependency.unavailable",
+        requestId: _request.id,
+      });
     }
   });
 
   app.addHook("onClose", async () => {
-    await dependencies.close();
+    await resolvedDependencies.close();
   });
 
   return app;
 }
 
-function createApiDependencies(): ApiDependencies {
-  const config = readRuntimeConfig();
+function createApiDependencies(config: RuntimeConfig): ApiDependencies {
   const runtimeDependencies = createRuntimeDependencies(config);
   const database = drizzle(runtimeDependencies.postgres, { schema });
 
@@ -362,6 +432,24 @@ function createApiDependencies(): ApiDependencies {
     createTicketId: randomUUID,
     checkReadiness: () => checkRuntimeDependencies(runtimeDependencies),
     close: () => closeRuntimeDependencies(runtimeDependencies),
+  };
+}
+
+function optionsFromConfig(config: RuntimeConfig | undefined): ApiOptions {
+  if (config !== undefined) {
+    return {
+      bodyLimit: config.requestBodyLimitBytes,
+      corsOrigin: config.corsOrigin,
+      rateLimitMax: config.rateLimitMax,
+      rateLimitWindowMs: config.rateLimitWindowMs,
+    };
+  }
+
+  return {
+    bodyLimit: 1_048_576,
+    corsOrigin: "http://localhost:5173",
+    rateLimitMax: 100,
+    rateLimitWindowMs: 60_000,
   };
 }
 
@@ -403,15 +491,87 @@ function parseIfMatch(
   return version === undefined ? undefined : Number.parseInt(version, 10);
 }
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
+function sendInvalidTicketIdProblem(
+  instance: string,
+  requestId: string,
+  reply: FastifyReply,
+) {
+  return reply
+    .type("application/problem+json")
+    .code(422)
+    .send({
+      type: "/problems/request-validation-failed",
+      title: "Request validation failed",
+      status: 422,
+      detail: "A requisição não atende ao contrato.",
+      instance,
+      code: "request.validation_failed",
+      requestId,
+      errors: [{ field: "id", reason: "invalid_format" }],
+    });
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError";
+}
+
 function problemFor(error: unknown):
   | {
       type: string;
       title: string;
-      status: 404 | 409 | 412;
+      status: 400 | 404 | 409 | 412 | 413 | 429;
       detail: string;
       code: string;
     }
   | undefined {
+  if (
+    error instanceof SyntaxError &&
+    (error as SyntaxError & { statusCode?: number }).statusCode === 400
+  ) {
+    return {
+      type: "/problems/request-invalid-json",
+      title: "Request invalid JSON",
+      status: 400,
+      detail: "O corpo da requisição contém JSON inválido.",
+      code: "request.invalid_json",
+    };
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "FST_ERR_CTP_BODY_TOO_LARGE"
+  ) {
+    return {
+      type: "/problems/request-body-too-large",
+      title: "Request body too large",
+      status: 413,
+      detail: "O corpo da requisição excede o limite permitido.",
+      code: "request.body_too_large",
+    };
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    error.statusCode === 429
+  ) {
+    return {
+      type: "/problems/rate-limit-exceeded",
+      title: "Rate limit exceeded",
+      status: 429,
+      detail: "Muitas requisições; tente novamente mais tarde.",
+      code: "rate_limit.exceeded",
+    };
+  }
   if (error instanceof TicketNotFoundError) {
     return {
       type: "/problems/ticket-not-found",

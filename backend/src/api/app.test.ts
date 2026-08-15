@@ -85,6 +85,52 @@ describe("POST /tickets", () => {
     });
   });
 
+  it("preserves the original response status when creation is replayed", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: {
+        createTicketWithProcessingIntent: vi.fn(async () => ({
+          kind: "replayed" as const,
+          ticket: {
+            id: ticketId,
+            title: "Acesso ao sistema indisponível",
+            description:
+              "O operador não consegue acessar o sistema desde as 09:00.",
+            requesterEmail: "operador@example.com",
+            priority: "high" as const,
+            status: "open" as const,
+            processingStatus: "pending" as const,
+            slaDueAt: null,
+            version: 1,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        })),
+      },
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: { "idempotency-key": "create-001" },
+      payload: {
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "high",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.headers.etag).toBe('"1"');
+    expect(response.headers["idempotency-replayed"]).toBe("true");
+  });
+
   it("returns a safe validation problem before creating a Ticket", async () => {
     const createTicketWithProcessingIntent = vi.fn();
     const dependencies: ApiDependencies = {
@@ -131,6 +177,68 @@ describe("POST /tickets", () => {
       ],
     });
     expect(createTicketWithProcessingIntent).not.toHaveBeenCalled();
+  });
+
+  it("returns a problem when the idempotency key is absent", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: { createTicketWithProcessingIntent: vi.fn() },
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      payload: {
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "high",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "idempotency.key_required",
+      status: 400,
+    });
+  });
+
+  it("returns a problem for malformed JSON", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: { createTicketWithProcessingIntent: vi.fn() },
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "create-003",
+      },
+      payload: '{"title":',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "request.invalid_json",
+      status: 400,
+    });
   });
 });
 
@@ -491,5 +599,143 @@ describe("POST /tickets/:id/reprocess", () => {
       ticketId,
       expectedVersion: 2,
     });
+  });
+});
+
+describe("HTTP boundary safeguards", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("applies the CORS allowlist and returns a problem after the configured rate limit", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: {} as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies, {
+      bodyLimit: 1_024,
+      corsOrigin: "http://localhost:5173",
+      rateLimitMax: 1,
+      rateLimitWindowMs: 60_000,
+    });
+    apps.push(app);
+
+    const first = await app.inject({
+      method: "GET",
+      url: "/health/live",
+      headers: { origin: "http://localhost:5173" },
+    });
+    const second = await app.inject({ method: "GET", url: "/health/live" });
+
+    expect(first.statusCode).toBe(200);
+    expect(first.headers["access-control-allow-origin"]).toBe(
+      "http://localhost:5173",
+    );
+    expect(first.headers["x-content-type-options"]).toBe("nosniff");
+    expect(second.statusCode).toBe(429);
+    expect(second.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(second.json()).toMatchObject({
+      code: "rate_limit.exceeded",
+      status: 429,
+    });
+  });
+
+  it("reports readiness failures as a dependency problem", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: {} as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => {
+        throw new Error("redis password should not be exposed");
+      },
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toEqual({
+      type: "/problems/dependency-unavailable",
+      title: "Dependency unavailable",
+      status: 503,
+      detail: "Uma dependência necessária não está disponível.",
+      instance: "/health/ready",
+      code: "dependency.unavailable",
+      requestId: expect.any(String),
+    });
+  });
+
+  it("returns a safe problem when the body exceeds the configured limit", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: { createTicketWithProcessingIntent: vi.fn() },
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies, {
+      bodyLimit: 100,
+      corsOrigin: "http://localhost:5173",
+      rateLimitMax: 100,
+      rateLimitWindowMs: 60_000,
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tickets",
+      headers: { "idempotency-key": "create-004" },
+      payload: {
+        title: "Acesso ao sistema indisponível",
+        description: "x".repeat(200),
+        requesterEmail: "operador@example.com",
+        priority: "high",
+      },
+    });
+
+    expect(response.statusCode).toBe(413);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "request.body_too_large",
+      status: 413,
+    });
+  });
+
+  it("rejects an invalid Ticket identifier before reaching persistence", async () => {
+    const getTicketDetail = vi.fn();
+    const dependencies: ApiDependencies = {
+      tickets: { getTicketDetail } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickets/not-a-uuid",
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "request.validation_failed",
+      errors: [{ field: "id", reason: "invalid_format" }],
+    });
+    expect(getTicketDetail).not.toHaveBeenCalled();
   });
 });
