@@ -4,7 +4,16 @@ import type { CreateTicketRequest } from "@inbot/shared";
 import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
-import type { Clock, Ticket } from "../../domain/ticket.js";
+import {
+  changeTicketPriority,
+  transitionTicketStatus,
+  type Clock,
+  type Ticket,
+  type TicketPriority,
+  type TicketPriorityChange,
+  type TicketStatus,
+  type TicketStatusTransition,
+} from "../../domain/ticket.js";
 import {
   idempotencyKeys,
   outboxMessages,
@@ -25,10 +34,36 @@ export type CreateTicketWithProcessingIntentResult =
   | { kind: "created"; ticket: Ticket }
   | { kind: "replayed"; ticket: Ticket };
 
+export interface UpdateTicketStatusCommand {
+  ticketId: string;
+  expectedVersion: number;
+  status: TicketStatus;
+}
+
+export interface ChangeTicketPriorityCommand {
+  ticketId: string;
+  expectedVersion: number;
+  priority: TicketPriority;
+}
+
 export class IdempotencyKeyReusedError extends Error {
   constructor() {
     super("idempotency.key_reused");
     this.name = "IdempotencyKeyReusedError";
+  }
+}
+
+export class TicketNotFoundError extends Error {
+  constructor() {
+    super("ticket.not_found");
+    this.name = "TicketNotFoundError";
+  }
+}
+
+export class TicketVersionConflictError extends Error {
+  constructor() {
+    super("ticket.version_conflict");
+    this.name = "TicketVersionConflictError";
   }
 }
 
@@ -110,6 +145,147 @@ export class TicketRepository {
       });
 
       return { kind: "created", ticket: toDomainTicket(persistedTicket) };
+    });
+  }
+
+  async updateTicketStatus(
+    command: UpdateTicketStatusCommand,
+  ): Promise<TicketStatusTransition> {
+    return this.db.transaction(async (transaction) => {
+      const persistedTicket = await transaction
+        .select()
+        .from(tickets)
+        .where(eq(tickets.id, command.ticketId))
+        .limit(1);
+      const current = persistedTicket[0];
+
+      if (current === undefined) {
+        throw new TicketNotFoundError();
+      }
+
+      if (current.version !== command.expectedVersion) {
+        throw new TicketVersionConflictError();
+      }
+
+      const transition = transitionTicketStatus(
+        toDomainTicket(current),
+        command.status,
+        this.clock,
+      );
+
+      if (transition.kind === "noop") {
+        return transition;
+      }
+
+      const updatedTickets = await transaction
+        .update(tickets)
+        .set({
+          status: transition.ticket.status,
+          version: transition.ticket.version,
+          updatedAt: transition.ticket.updatedAt,
+        })
+        .where(
+          and(
+            eq(tickets.id, command.ticketId),
+            eq(tickets.version, command.expectedVersion),
+          ),
+        )
+        .returning();
+
+      if (updatedTickets.length !== 1) {
+        throw new TicketVersionConflictError();
+      }
+
+      await transaction.insert(ticketHistories).values({
+        id: randomUUID(),
+        ticketId: command.ticketId,
+        type: "status_changed",
+        previousValue: transition.previousStatus,
+        nextValue: transition.ticket.status,
+        source: "operator",
+        createdAt: transition.ticket.updatedAt,
+      });
+
+      return transition;
+    });
+  }
+
+  async changeTicketPriority(
+    command: ChangeTicketPriorityCommand,
+  ): Promise<TicketPriorityChange> {
+    return this.db.transaction(async (transaction) => {
+      const persistedTicket = await transaction
+        .select()
+        .from(tickets)
+        .where(eq(tickets.id, command.ticketId))
+        .limit(1);
+      const current = persistedTicket[0];
+
+      if (current === undefined) {
+        throw new TicketNotFoundError();
+      }
+
+      if (current.version !== command.expectedVersion) {
+        throw new TicketVersionConflictError();
+      }
+
+      const change = changeTicketPriority(
+        toDomainTicket(current),
+        command.priority,
+        this.clock,
+      );
+
+      if (change.kind === "noop") {
+        return change;
+      }
+
+      const updatedTickets = await transaction
+        .update(tickets)
+        .set({
+          priority: change.ticket.priority,
+          processingStatus: change.ticket.processingStatus,
+          version: change.ticket.version,
+          updatedAt: change.ticket.updatedAt,
+        })
+        .where(
+          and(
+            eq(tickets.id, command.ticketId),
+            eq(tickets.version, command.expectedVersion),
+          ),
+        )
+        .returning();
+
+      if (updatedTickets.length !== 1) {
+        throw new TicketVersionConflictError();
+      }
+
+      await transaction.insert(ticketHistories).values({
+        id: randomUUID(),
+        ticketId: command.ticketId,
+        type: "priority_changed",
+        previousValue: change.previousPriority,
+        nextValue: change.ticket.priority,
+        source: "operator",
+        createdAt: change.ticket.updatedAt,
+      });
+      await transaction.insert(outboxMessages).values({
+        id: randomUUID(),
+        ticketId: command.ticketId,
+        processingVersion: change.ticket.version,
+        type: "ticket_sla",
+        payload: {
+          ticketId: command.ticketId,
+          processingVersion: change.ticket.version,
+        },
+        status: "pending",
+        attempts: 0,
+        lockedUntil: null,
+        publishedAt: null,
+        createdAt: change.ticket.updatedAt,
+        updatedAt: change.ticket.updatedAt,
+      });
+
+      return change;
     });
   }
 }

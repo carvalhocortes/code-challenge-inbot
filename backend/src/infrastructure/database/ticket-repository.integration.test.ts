@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { eq } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -13,6 +14,7 @@ import {
 import {
   IdempotencyKeyReusedError,
   TicketRepository,
+  TicketVersionConflictError,
   type Database,
 } from "./ticket-repository.js";
 import {
@@ -131,5 +133,163 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
     await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(3);
     await expect(db.select().from(ticketHistories)).resolves.toHaveLength(3);
     await expect(db.select().from(outboxMessages)).resolves.toHaveLength(3);
+  });
+  describe("TicketRepository.updateTicketStatus", () => {
+    it("updates the Status de atendimento with a version check and records history", async () => {
+      const ticketId = randomUUID();
+      await repository.createTicketWithProcessingIntent({
+        ticketId,
+        idempotencyKey: "status-001",
+        ticket: {
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+        },
+      });
+
+      const result = await repository.updateTicketStatus({
+        ticketId,
+        expectedVersion: 1,
+        status: "in_progress",
+      });
+
+      expect(result).toMatchObject({
+        kind: "changed",
+        ticket: { id: ticketId, status: "in_progress", version: 2 },
+      });
+      await expect(
+        db
+          .select()
+          .from(ticketHistories)
+          .where(eq(ticketHistories.ticketId, ticketId)),
+      ).resolves.toMatchObject([
+        { type: "created" },
+        {
+          type: "status_changed",
+          previousValue: "open",
+          nextValue: "in_progress",
+        },
+      ]);
+    });
+  });
+
+  describe("TicketRepository.changeTicketPriority", () => {
+    it("updates Priority, records history and creates a new processing intent", async () => {
+      const ticketId = randomUUID();
+      await repository.createTicketWithProcessingIntent({
+        ticketId,
+        idempotencyKey: "priority-001",
+        ticket: {
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+        },
+      });
+
+      const result = await repository.changeTicketPriority({
+        ticketId,
+        expectedVersion: 1,
+        priority: "critical",
+      });
+
+      expect(result).toMatchObject({
+        kind: "changed",
+        ticket: {
+          id: ticketId,
+          priority: "critical",
+          processingStatus: "pending",
+          version: 2,
+        },
+      });
+      await expect(
+        db
+          .select()
+          .from(ticketHistories)
+          .where(eq(ticketHistories.ticketId, ticketId)),
+      ).resolves.toMatchObject([
+        { type: "created" },
+        {
+          type: "priority_changed",
+          previousValue: "high",
+          nextValue: "critical",
+        },
+      ]);
+      await expect(
+        db
+          .select()
+          .from(outboxMessages)
+          .where(eq(outboxMessages.ticketId, ticketId)),
+      ).resolves.toHaveLength(2);
+    });
+  });
+
+  describe("transactional persistence invariants", () => {
+    it("does not create history when an update uses a stale version", async () => {
+      const ticketId = randomUUID();
+      await repository.createTicketWithProcessingIntent({
+        ticketId,
+        idempotencyKey: "stale-version-001",
+        ticket: {
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+        },
+      });
+      await repository.updateTicketStatus({
+        ticketId,
+        expectedVersion: 1,
+        status: "in_progress",
+      });
+
+      await expect(
+        repository.updateTicketStatus({
+          ticketId,
+          expectedVersion: 1,
+          status: "resolved",
+        }),
+      ).rejects.toBeInstanceOf(TicketVersionConflictError);
+      await expect(
+        db
+          .select()
+          .from(ticketHistories)
+          .where(eq(ticketHistories.ticketId, ticketId)),
+      ).resolves.toHaveLength(2);
+    });
+
+    it("rejects direct mutation of Ticket history", async () => {
+      const ticketId = randomUUID();
+      await repository.createTicketWithProcessingIntent({
+        ticketId,
+        idempotencyKey: "immutable-history-001",
+        ticket: {
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+        },
+      });
+      const history = await db
+        .select()
+        .from(ticketHistories)
+        .where(eq(ticketHistories.ticketId, ticketId));
+
+      if (pool === undefined || history[0] === undefined) {
+        throw new Error("The integration fixture was not initialized.");
+      }
+
+      await expect(
+        pool.query("UPDATE ticket_history SET next_value = $1 WHERE id = $2", [
+          "tampered",
+          history[0].id,
+        ]),
+      ).rejects.toThrow("ticket_history is immutable");
+    });
   });
 });
