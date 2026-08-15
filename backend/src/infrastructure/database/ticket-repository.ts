@@ -1,17 +1,32 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { CreateTicketRequest, ListTicketsQuery } from "@inbot/shared";
+import type { ListTicketsQuery } from "@inbot/shared";
 import { and, asc, count, desc, eq, ilike, or, type SQL } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
+import type {
+  ChangeTicketPriorityCommand,
+  CreateTicketCommand,
+  CreateTicketResult,
+  ReprocessTicketCommand,
+  TicketCommandRepository,
+  TicketDetail,
+  TicketHistoryEntry,
+  TicketList,
+  TicketQueryRepository,
+  UpdateTicketStatusCommand,
+} from "../../application/tickets/contracts.js";
+import {
+  IdempotencyKeyReusedError,
+  TicketNotFoundError,
+  TicketReprocessNotAllowedError,
+  TicketVersionConflictError,
+} from "../../application/tickets/errors.js";
 import {
   changeTicketPriority,
   transitionTicketStatus,
   type Clock,
   type Ticket,
-  type TicketPriority,
   type TicketPriorityChange,
-  type TicketStatus,
   type TicketStatusTransition,
 } from "../../domain/ticket.js";
 import {
@@ -20,98 +35,21 @@ import {
   ticketHistories,
   tickets,
 } from "./schema.js";
-import * as schema from "./schema.js";
+import type { Database } from "./database.js";
+import { toDomainTicket } from "./ticket-mapper.js";
 
-export type Database = NodePgDatabase<typeof schema>;
-
-export interface CreateTicketWithProcessingIntentCommand {
-  ticketId: string;
-  idempotencyKey: string;
-  ticket: CreateTicketRequest;
-}
-
-export type CreateTicketWithProcessingIntentResult =
-  | { kind: "created"; ticket: Ticket }
-  | { kind: "replayed"; ticket: Ticket };
-
-export interface UpdateTicketStatusCommand {
-  ticketId: string;
-  expectedVersion: number;
-  status: TicketStatus;
-}
-
-export interface ChangeTicketPriorityCommand {
-  ticketId: string;
-  expectedVersion: number;
-  priority: TicketPriority;
-}
-
-export interface ReprocessTicketCommand {
-  ticketId: string;
-  expectedVersion: number;
-}
-
-export interface TicketList {
-  items: Ticket[];
-  meta: {
-    page: number;
-    pageSize: number;
-    total: number;
-    totalPages: number;
-  };
-}
-
-export interface TicketHistoryEntry {
-  id: string;
-  type: "created" | "status_changed" | "priority_changed";
-  previousValue: string | null;
-  nextValue: string | null;
-  source: "operator" | "system";
-  createdAt: Date;
-}
-
-export interface TicketDetail {
-  ticket: Ticket;
-  history: TicketHistoryEntry[];
-}
-
-export class IdempotencyKeyReusedError extends Error {
-  constructor() {
-    super("idempotency.key_reused");
-    this.name = "IdempotencyKeyReusedError";
-  }
-}
-
-export class TicketNotFoundError extends Error {
-  constructor() {
-    super("ticket.not_found");
-    this.name = "TicketNotFoundError";
-  }
-}
-
-export class TicketVersionConflictError extends Error {
-  constructor() {
-    super("ticket.version_conflict");
-    this.name = "TicketVersionConflictError";
-  }
-}
-
-export class TicketReprocessNotAllowedError extends Error {
-  constructor() {
-    super("ticket.reprocess_not_allowed");
-    this.name = "TicketReprocessNotAllowedError";
-  }
-}
-
-export class TicketRepository {
+/** PostgreSQL/Drizzle implementation of the ticket persistence ports. */
+export class PostgresTicketRepository
+  implements TicketCommandRepository, TicketQueryRepository
+{
   constructor(
     private readonly db: Database,
     private readonly clock: Clock,
   ) {}
 
   async createTicketWithProcessingIntent(
-    command: CreateTicketWithProcessingIntentCommand,
-  ): Promise<CreateTicketWithProcessingIntentResult> {
+    command: CreateTicketCommand,
+  ): Promise<CreateTicketResult> {
     const requestHash = hashCanonicalJson(command.ticket);
 
     return this.db.transaction(async (transaction) => {
@@ -465,13 +403,6 @@ export class TicketRepository {
       return toDomainTicket(ticket);
     });
   }
-}
-
-function toDomainTicket(record: typeof tickets.$inferSelect): Ticket {
-  return {
-    ...record,
-    version: record.version,
-  };
 }
 
 function hashCanonicalJson(value: unknown): string {

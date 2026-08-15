@@ -1,9 +1,11 @@
 import type { Clock } from "../../domain/ticket.js";
-import type { ProcessingFailure } from "../../domain/processing-failure.js";
+import {
+  HolidayProviderError,
+  type HolidayProvider,
+} from "../../application/tickets/sla-processing.js";
 
-export interface HolidayProvider {
-  holidaysForYear(year: number): Promise<ReadonlySet<string>>;
-}
+export type { HolidayProvider } from "../../application/tickets/sla-processing.js";
+export { HolidayProviderError } from "../../application/tickets/sla-processing.js";
 
 export interface BrasilApiHolidayProviderOptions {
   fetch?: typeof globalThis.fetch;
@@ -52,13 +54,6 @@ export class BrasilApiHolidayProvider implements HolidayProvider {
     } finally {
       clearTimeout(timeout);
     }
-  }
-}
-
-export class HolidayProviderError extends Error {
-  constructor(readonly failure: ProcessingFailure) {
-    super(`holiday_provider.${failure.kind}`);
-    this.name = "HolidayProviderError";
   }
 }
 

@@ -6,7 +6,7 @@ import { TicketDomainError } from "../domain/ticket.js";
 import {
   TicketNotFoundError,
   TicketVersionConflictError,
-} from "../infrastructure/database/ticket-repository.js";
+} from "../application/tickets/errors.js";
 
 const ticketId = "8d3f6f3e-8aab-4ef6-a6b5-0ef7a8b9a1f2";
 const createdAt = new Date("2026-08-14T12:00:00.000Z");

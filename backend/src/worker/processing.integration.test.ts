@@ -14,11 +14,11 @@ import {
 } from "@testcontainers/postgresql";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import { TicketSlaProcessingService } from "../application/tickets/sla-processing.js";
 import { calculateSlaDueAt } from "../domain/sla.js";
-import {
-  type Database,
-  TicketRepository,
-} from "../infrastructure/database/ticket-repository.js";
+import type { Database } from "../infrastructure/database/database.js";
+import { PostgresTicketSlaProcessingStore } from "../infrastructure/database/postgres-ticket-sla-processing-store.js";
+import { PostgresTicketRepository } from "../infrastructure/database/ticket-repository.js";
 import {
   idempotencyKeys,
   outboxMessages,
@@ -28,10 +28,7 @@ import {
 import { OutboxDispatcher } from "../infrastructure/outbox/dispatcher.js";
 import { FakeHolidayProvider } from "../infrastructure/holidays/holiday-provider.js";
 import { createTicketSlaQueue } from "../infrastructure/queue/ticket-sla-queue.js";
-import {
-  createTicketSlaWorker,
-  TicketSlaProcessor,
-} from "./ticket-sla-worker.js";
+import { createTicketSlaWorker } from "../infrastructure/queue/bullmq-ticket-sla-worker.js";
 
 describe("Outbox Dispatcher and SLA Worker", () => {
   let postgresContainer: StartedPostgreSqlContainer | undefined;
@@ -39,7 +36,7 @@ describe("Outbox Dispatcher and SLA Worker", () => {
   let pool: pg.Pool | undefined;
   let redis: Redis | undefined;
   let db: Database;
-  let ticketsRepository: TicketRepository;
+  let ticketsRepository: PostgresTicketRepository;
   let queue: Queue;
   const now = new Date("2026-08-17T13:00:00.000Z");
 
@@ -67,7 +64,7 @@ describe("Outbox Dispatcher and SLA Worker", () => {
       maxRetriesPerRequest: null,
     });
     queue = createTicketSlaQueue(redis);
-    ticketsRepository = new TicketRepository(db, { now: () => now });
+    ticketsRepository = new PostgresTicketRepository(db, { now: () => now });
   });
 
   afterEach(async () => {
@@ -87,8 +84,8 @@ describe("Outbox Dispatcher and SLA Worker", () => {
 
   it("publishes a persisted creation and the Worker completes its SLA processing", async () => {
     const ticketId = await createPendingTicket("process-success");
-    const processor = new TicketSlaProcessor(
-      db,
+    const processor = new TicketSlaProcessingService(
+      new PostgresTicketSlaProcessingStore(db),
       new FakeHolidayProvider({ mode: "success" }),
     );
     const worker = createTicketSlaWorker(redis as Redis, processor);
@@ -131,8 +128,8 @@ describe("Outbox Dispatcher and SLA Worker", () => {
     const ticketId = await createPendingTicket("recover-and-replay");
     const payload = { ticketId, processingVersion: 1 };
     const jobId = `ticket-${ticketId}-processing-1`;
-    const processor = new TicketSlaProcessor(
-      db,
+    const processor = new TicketSlaProcessingService(
+      new PostgresTicketSlaProcessingStore(db),
       new FakeHolidayProvider({ mode: "success" }),
     );
     const dispatcher = new OutboxDispatcher(
@@ -184,7 +181,10 @@ describe("Outbox Dispatcher and SLA Worker", () => {
       attempts: 2,
       backoffMs: 1,
     });
-    const processor = new TicketSlaProcessor(db, holidays);
+    const processor = new TicketSlaProcessingService(
+      new PostgresTicketSlaProcessingStore(db),
+      holidays,
+    );
     const worker = createTicketSlaWorker(redis as Redis, processor);
     const completed = new Promise<void>((resolve) => {
       worker.once("completed", () => resolve());
@@ -215,8 +215,8 @@ describe("Outbox Dispatcher and SLA Worker", () => {
       attempts: 3,
       backoffMs: 1,
     });
-    const processor = new TicketSlaProcessor(
-      db,
+    const processor = new TicketSlaProcessingService(
+      new PostgresTicketSlaProcessingStore(db),
       new FakeHolidayProvider({ mode: "400" }),
     );
     const worker = createTicketSlaWorker(redis as Redis, processor);
@@ -260,7 +260,10 @@ describe("Outbox Dispatcher and SLA Worker", () => {
     });
     const worker = createTicketSlaWorker(
       redis as Redis,
-      new TicketSlaProcessor(db, holidays),
+      new TicketSlaProcessingService(
+        new PostgresTicketSlaProcessingStore(db),
+        holidays,
+      ),
     );
     const dispatcher = new OutboxDispatcher(
       db,

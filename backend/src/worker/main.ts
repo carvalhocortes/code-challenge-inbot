@@ -1,6 +1,8 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 
 import { readRuntimeConfig } from "../config.js";
+import { TicketSlaProcessingService } from "../application/tickets/sla-processing.js";
+import { PostgresTicketSlaProcessingStore } from "../infrastructure/database/postgres-ticket-sla-processing-store.js";
 import * as schema from "../infrastructure/database/schema.js";
 import {
   BrasilApiHolidayProvider,
@@ -14,10 +16,7 @@ import {
   closeRuntimeDependencies,
   createRuntimeDependencies,
 } from "../infrastructure/runtime-dependencies.js";
-import {
-  createTicketSlaWorker,
-  TicketSlaProcessor,
-} from "./ticket-sla-worker.js";
+import { createTicketSlaWorker } from "../infrastructure/queue/bullmq-ticket-sla-worker.js";
 
 const config = readRuntimeConfig();
 const dependencies = createRuntimeDependencies(config);
@@ -37,7 +36,10 @@ const holidays = new CachedHolidayProvider(holidaySource, {
   now: () => new Date(),
   ttlMs: config.holidayCacheTtlMs,
 });
-const processor = new TicketSlaProcessor(db, holidays);
+const processor = new TicketSlaProcessingService(
+  new PostgresTicketSlaProcessingStore(db),
+  holidays,
+);
 const worker = createTicketSlaWorker(dependencies.redis, processor);
 const dispatcher = new OutboxDispatcher(
   db,
