@@ -2,7 +2,11 @@ import type { CreateTicketRequest } from "@inbot/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildApi, type ApiDependencies } from "./app.js";
-import { TicketVersionConflictError } from "../infrastructure/database/ticket-repository.js";
+import { TicketDomainError } from "../domain/ticket.js";
+import {
+  TicketNotFoundError,
+  TicketVersionConflictError,
+} from "../infrastructure/database/ticket-repository.js";
 
 const ticketId = "8d3f6f3e-8aab-4ef6-a6b5-0ef7a8b9a1f2";
 const createdAt = new Date("2026-08-14T12:00:00.000Z");
@@ -737,5 +741,73 @@ describe("HTTP boundary safeguards", () => {
       errors: [{ field: "id", reason: "invalid_format" }],
     });
     expect(getTicketDetail).not.toHaveBeenCalled();
+  });
+});
+
+describe("HTTP problem mappings", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("returns ticket.not_found when the requested Ticket does not exist", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: {
+        getTicketDetail: async () => {
+          throw new TicketNotFoundError();
+        },
+      } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/tickets/${ticketId}`,
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "ticket.not_found",
+      status: 404,
+    });
+  });
+
+  it("returns a stable conflict problem for an invalid status transition", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: {
+        updateTicketStatus: async () => {
+          throw new TicketDomainError("ticket.status_transition_invalid");
+        },
+      } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/tickets/${ticketId}/status`,
+      headers: { "if-match": '"1"' },
+      payload: { status: "resolved" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "ticket.status_transition_invalid",
+      status: 409,
+    });
   });
 });
