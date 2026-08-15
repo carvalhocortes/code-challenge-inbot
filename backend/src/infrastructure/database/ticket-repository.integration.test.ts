@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { asc, eq } from "drizzle-orm";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
@@ -51,6 +51,13 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
   afterAll(async () => {
     await pool?.end();
     await container?.stop();
+  });
+
+  afterEach(async () => {
+    currentTime = new Date("2026-08-17T13:00:00.000Z");
+    await pool?.query(
+      "TRUNCATE outbox_messages, idempotency_keys, ticket_history, tickets CASCADE",
+    );
   });
 
   it("persists Ticket, idempotency key, history and outbox intent atomically", async () => {
@@ -104,10 +111,10 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
       kind: "replayed",
       ticket: { id: command.ticketId },
     });
-    await expect(db.select().from(tickets)).resolves.toHaveLength(2);
-    await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(2);
-    await expect(db.select().from(ticketHistories)).resolves.toHaveLength(2);
-    await expect(db.select().from(outboxMessages)).resolves.toHaveLength(2);
+    await expect(db.select().from(tickets)).resolves.toHaveLength(1);
+    await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(1);
+    await expect(db.select().from(ticketHistories)).resolves.toHaveLength(1);
+    await expect(db.select().from(outboxMessages)).resolves.toHaveLength(1);
   });
 
   it("rejects reuse of an idempotency key with different content", async () => {
@@ -131,10 +138,10 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
         ticket: { ...command.ticket, priority: "critical" },
       }),
     ).rejects.toBeInstanceOf(IdempotencyKeyReusedError);
-    await expect(db.select().from(tickets)).resolves.toHaveLength(3);
-    await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(3);
-    await expect(db.select().from(ticketHistories)).resolves.toHaveLength(3);
-    await expect(db.select().from(outboxMessages)).resolves.toHaveLength(3);
+    await expect(db.select().from(tickets)).resolves.toHaveLength(1);
+    await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(1);
+    await expect(db.select().from(ticketHistories)).resolves.toHaveLength(1);
+    await expect(db.select().from(outboxMessages)).resolves.toHaveLength(1);
   });
   describe("TicketRepository.updateTicketStatus", () => {
     it("updates the Status de atendimento with a version check and records history", async () => {
