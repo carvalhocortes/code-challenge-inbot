@@ -21,8 +21,8 @@
     "@fastify/rate-limit": "10.2.0",
     "@inbot/shared": "workspace:*",
     "bullmq": "^6.1.0",
-    "drizzle-orm": "0.38.3",
-    "fastify": "5.2.1",
+    "drizzle-orm": "0.45.2",
+    "fastify": "5.8.5",
     "ioredis": "5.4.2",
     "pg": "8.13.3"
   },

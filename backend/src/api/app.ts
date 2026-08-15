@@ -532,8 +532,9 @@ function problemFor(error: unknown):
     }
   | undefined {
   if (
-    error instanceof SyntaxError &&
-    (error as SyntaxError & { statusCode?: number }).statusCode === 400
+    (error instanceof SyntaxError &&
+      (error as SyntaxError & { statusCode?: number }).statusCode === 400) ||
+    hasErrorCode(error, "FST_ERR_CTP_INVALID_JSON_BODY")
   ) {
     return {
       type: "/problems/request-invalid-json",
@@ -544,12 +545,7 @@ function problemFor(error: unknown):
     };
   }
 
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "FST_ERR_CTP_BODY_TOO_LARGE"
-  ) {
+  if (hasErrorCode(error, "FST_ERR_CTP_BODY_TOO_LARGE")) {
     return {
       type: "/problems/request-body-too-large",
       title: "Request body too large",
@@ -628,4 +624,13 @@ function problemFor(error: unknown):
       code: error.code,
     };
   }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
 }
