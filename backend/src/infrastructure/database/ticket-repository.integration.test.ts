@@ -14,6 +14,7 @@ import {
 import {
   IdempotencyKeyReusedError,
   TicketRepository,
+  TicketReprocessNotAllowedError,
   TicketVersionConflictError,
   type Database,
 } from "./ticket-repository.js";
@@ -225,6 +226,81 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
           .from(outboxMessages)
           .where(eq(outboxMessages.ticketId, ticketId)),
       ).resolves.toHaveLength(2);
+    });
+  });
+
+  describe("TicketRepository.reprocessTicket", () => {
+    it("creates a fresh pending processing intent for a failed Ticket", async () => {
+      const ticketId = randomUUID();
+      await repository.createTicketWithProcessingIntent({
+        ticketId,
+        idempotencyKey: "reprocess-001",
+        ticket: {
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+        },
+      });
+      await db
+        .update(tickets)
+        .set({ processingStatus: "failed", version: 2, updatedAt: currentTime })
+        .where(eq(tickets.id, ticketId));
+      currentTime = new Date("2026-08-17T13:01:00.000Z");
+
+      const result = await repository.reprocessTicket({
+        ticketId,
+        expectedVersion: 2,
+      });
+
+      expect(result).toMatchObject({
+        id: ticketId,
+        processingStatus: "pending",
+        slaDueAt: null,
+        version: 3,
+        updatedAt: currentTime,
+      });
+      await expect(
+        db
+          .select({ processingVersion: outboxMessages.processingVersion })
+          .from(outboxMessages)
+          .where(eq(outboxMessages.ticketId, ticketId))
+          .orderBy(asc(outboxMessages.processingVersion)),
+      ).resolves.toEqual([{ processingVersion: 1 }, { processingVersion: 3 }]);
+    });
+
+    it("does not enqueue processing for a completed Ticket", async () => {
+      const ticketId = randomUUID();
+      await repository.createTicketWithProcessingIntent({
+        ticketId,
+        idempotencyKey: "reprocess-completed-001",
+        ticket: {
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+        },
+      });
+      await db
+        .update(tickets)
+        .set({
+          processingStatus: "completed",
+          version: 2,
+          updatedAt: currentTime,
+        })
+        .where(eq(tickets.id, ticketId));
+
+      await expect(
+        repository.reprocessTicket({ ticketId, expectedVersion: 2 }),
+      ).rejects.toBeInstanceOf(TicketReprocessNotAllowedError);
+      await expect(
+        db
+          .select()
+          .from(outboxMessages)
+          .where(eq(outboxMessages.ticketId, ticketId)),
+      ).resolves.toHaveLength(1);
     });
   });
 
