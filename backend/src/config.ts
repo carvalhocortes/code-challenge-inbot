@@ -9,6 +9,10 @@ export interface RuntimeConfig {
   outboxPollIntervalMs: number;
   outboxBatchSize: number;
   outboxLeaseMs: number;
+  brasilApiTimeoutMs: number;
+  slaRetryAttempts: number;
+  slaRetryBackoffMs: number;
+  holidayCacheTtlMs: number;
 }
 
 function readRequired(name: string): string {
@@ -74,5 +78,10 @@ export function readRuntimeConfig(): RuntimeConfig {
     outboxPollIntervalMs: readPositiveInteger("OUTBOX_POLL_INTERVAL_MS", 1_000),
     outboxBatchSize: readPositiveInteger("OUTBOX_BATCH_SIZE", 10),
     outboxLeaseMs: readPositiveInteger("OUTBOX_LEASE_SECONDS", 30) * 1_000,
+    brasilApiTimeoutMs: readPositiveInteger("BRASIL_API_TIMEOUT_MS", 5_000),
+    slaRetryAttempts: readPositiveInteger("SLA_RETRY_ATTEMPTS", 3),
+    slaRetryBackoffMs: readPositiveInteger("SLA_RETRY_BACKOFF_MS", 1_000),
+    holidayCacheTtlMs:
+      readPositiveInteger("HOLIDAY_CACHE_TTL_SECONDS", 86_400) * 1_000,
   };
 }

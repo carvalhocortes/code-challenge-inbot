@@ -2,6 +2,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 
 import { readRuntimeConfig } from "../config.js";
 import * as schema from "../infrastructure/database/schema.js";
+import {
+  BrasilApiHolidayProvider,
+  CachedHolidayProvider,
+} from "../infrastructure/holidays/holiday-provider.js";
 import { OutboxDispatcher } from "../infrastructure/outbox/dispatcher.js";
 import { createTicketSlaQueue } from "../infrastructure/queue/ticket-sla-queue.js";
 import {
@@ -20,10 +24,18 @@ const dependencies = createRuntimeDependencies(config);
 await checkRuntimeDependencies(dependencies);
 
 const db = drizzle(dependencies.postgres, { schema });
-const queue = createTicketSlaQueue(dependencies.redis);
-const processor = new TicketSlaProcessor(db, {
-  holidays: async () => new Set(),
+const queue = createTicketSlaQueue(dependencies.redis, {
+  attempts: config.slaRetryAttempts,
+  backoffMs: config.slaRetryBackoffMs,
 });
+const holidays = new CachedHolidayProvider(
+  new BrasilApiHolidayProvider({ timeoutMs: config.brasilApiTimeoutMs }),
+  {
+    now: () => new Date(),
+    ttlMs: config.holidayCacheTtlMs,
+  },
+);
+const processor = new TicketSlaProcessor(db, holidays);
 const worker = createTicketSlaWorker(dependencies.redis, processor);
 const dispatcher = new OutboxDispatcher(
   db,

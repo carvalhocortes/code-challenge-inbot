@@ -10,10 +10,25 @@ export type TicketSlaQueue = Pick<
   "add"
 >;
 
+export interface TicketSlaQueueOptions {
+  attempts: number;
+  backoffMs: number;
+}
+
 export function createTicketSlaQueue(
   connection: Redis,
+  options?: TicketSlaQueueOptions,
 ): Queue<TicketSlaJob, void, typeof ticketSlaJobName> {
-  return new Queue(ticketSlaQueueName, { connection });
+  return new Queue(ticketSlaQueueName, {
+    connection,
+    defaultJobOptions:
+      options === undefined
+        ? undefined
+        : {
+            attempts: options.attempts,
+            backoff: { type: "exponential", delay: options.backoffMs },
+          },
+  });
 }
 
 export function ticketSlaJobId(payload: TicketSlaJob): string {
