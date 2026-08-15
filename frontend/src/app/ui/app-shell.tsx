@@ -9,6 +9,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
       const response = await fetch(new URL("/health/ready", baseUrl));
       if (!response.ok) throw new Error("API indisponível");
+
+      return { status: "ready" };
     },
     queryKey: ["api-readiness"],
     refetchInterval: 30_000,
