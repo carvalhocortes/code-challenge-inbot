@@ -1,0 +1,108 @@
+import {
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+
+export const ticketPriority = pgEnum("ticket_priority", [
+  "critical",
+  "high",
+  "medium",
+  "low",
+]);
+export const ticketStatus = pgEnum("ticket_status", [
+  "open",
+  "in_progress",
+  "resolved",
+  "closed",
+]);
+export const ticketProcessingStatus = pgEnum("ticket_processing_status", [
+  "pending",
+  "processing",
+  "processed",
+  "failed",
+]);
+export const ticketHistoryType = pgEnum("ticket_history_type", [
+  "created",
+  "status_changed",
+  "priority_changed",
+]);
+export const ticketHistorySource = pgEnum("ticket_history_source", [
+  "operator",
+  "system",
+]);
+export const outboxStatus = pgEnum("outbox_status", [
+  "pending",
+  "processing",
+  "published",
+]);
+
+export const tickets = pgTable("tickets", {
+  id: uuid("id").primaryKey(),
+  title: varchar("title", { length: 120 }).notNull(),
+  description: varchar("description", { length: 2_000 }).notNull(),
+  requesterEmail: varchar("requester_email", { length: 320 }).notNull(),
+  priority: ticketPriority("priority").notNull(),
+  status: ticketStatus("status").notNull(),
+  processingStatus: ticketProcessingStatus("processing_status").notNull(),
+  slaDueAt: timestamp("sla_due_at", { withTimezone: true, mode: "date" }),
+  version: integer("version").notNull(),
+  createdAt: timestamp("created_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+  updatedAt: timestamp("updated_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+});
+
+export const ticketHistories = pgTable("ticket_history", {
+  id: uuid("id").primaryKey(),
+  ticketId: uuid("ticket_id").notNull(),
+  type: ticketHistoryType("type").notNull(),
+  previousValue: text("previous_value"),
+  nextValue: text("next_value"),
+  source: ticketHistorySource("source").notNull(),
+  createdAt: timestamp("created_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+});
+
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  key: text("key").primaryKey(),
+  requestHash: text("request_hash").notNull(),
+  ticketId: uuid("ticket_id").notNull(),
+  createdAt: timestamp("created_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+});
+
+export const outboxMessages = pgTable("outbox_messages", {
+  id: uuid("id").primaryKey(),
+  ticketId: uuid("ticket_id").notNull(),
+  processingVersion: integer("processing_version").notNull(),
+  type: text("type").notNull(),
+  payload: jsonb("payload")
+    .$type<{ ticketId: string; processingVersion: number }>()
+    .notNull(),
+  status: outboxStatus("status").notNull(),
+  attempts: integer("attempts").notNull(),
+  lockedUntil: timestamp("locked_until", { withTimezone: true, mode: "date" }),
+  publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+  updatedAt: timestamp("updated_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+});
