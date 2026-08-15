@@ -26,6 +26,7 @@ import {
   tickets,
 } from "../infrastructure/database/schema.js";
 import { OutboxDispatcher } from "../infrastructure/outbox/dispatcher.js";
+import { FakeHolidayProvider } from "../infrastructure/holidays/holiday-provider.js";
 import { createTicketSlaQueue } from "../infrastructure/queue/ticket-sla-queue.js";
 import {
   createTicketSlaWorker,
@@ -86,9 +87,10 @@ describe("Outbox Dispatcher and SLA Worker", () => {
 
   it("publishes a persisted creation and the Worker completes its SLA processing", async () => {
     const ticketId = await createPendingTicket("process-success");
-    const processor = new TicketSlaProcessor(db, {
-      holidays: async () => new Set(),
-    });
+    const processor = new TicketSlaProcessor(
+      db,
+      new FakeHolidayProvider({ mode: "success" }),
+    );
     const worker = createTicketSlaWorker(redis as Redis, processor);
     const completed = new Promise<void>((resolve, reject) => {
       worker.once("completed", () => resolve());
@@ -129,9 +131,10 @@ describe("Outbox Dispatcher and SLA Worker", () => {
     const ticketId = await createPendingTicket("recover-and-replay");
     const payload = { ticketId, processingVersion: 1 };
     const jobId = `ticket-${ticketId}-processing-1`;
-    const processor = new TicketSlaProcessor(db, {
-      holidays: async () => new Set(),
-    });
+    const processor = new TicketSlaProcessor(
+      db,
+      new FakeHolidayProvider({ mode: "success" }),
+    );
     const dispatcher = new OutboxDispatcher(
       db,
       queue,
@@ -170,6 +173,120 @@ describe("Outbox Dispatcher and SLA Worker", () => {
     await expect(
       queue.getJobCounts("waiting", "active", "completed"),
     ).resolves.toMatchObject({ waiting: 1, active: 0 });
+  });
+
+  it("retries a transient holiday-provider failure and completes the Ticket once", async () => {
+    const ticketId = await createPendingTicket("retry-transient");
+    const holidays = new FakeHolidayProvider({
+      modes: ["500", "success"],
+    });
+    const retryQueue = createTicketSlaQueue(redis as Redis, {
+      attempts: 2,
+      backoffMs: 1,
+    });
+    const processor = new TicketSlaProcessor(db, holidays);
+    const worker = createTicketSlaWorker(redis as Redis, processor);
+    const completed = new Promise<void>((resolve) => {
+      worker.once("completed", () => resolve());
+    });
+    const dispatcher = new OutboxDispatcher(
+      db,
+      retryQueue,
+      { now: () => now },
+      { batchSize: 10, leaseMs: 30_000 },
+    );
+
+    await dispatcher.dispatchOnce();
+    await completed;
+
+    expect(holidays.calls).toBe(2);
+    await expect(
+      ticketsRepository.getTicketDetail(ticketId),
+    ).resolves.toMatchObject({
+      ticket: { processingStatus: "processed" },
+    });
+    await worker.close();
+    await retryQueue.close();
+  });
+
+  it("marks a Ticket as failed after a definitive holiday-provider error", async () => {
+    const ticketId = await createPendingTicket("fail-definitive");
+    const queueWithRetries = createTicketSlaQueue(redis as Redis, {
+      attempts: 3,
+      backoffMs: 1,
+    });
+    const processor = new TicketSlaProcessor(
+      db,
+      new FakeHolidayProvider({ mode: "400" }),
+    );
+    const worker = createTicketSlaWorker(redis as Redis, processor);
+    const dispatcher = new OutboxDispatcher(
+      db,
+      queueWithRetries,
+      { now: () => now },
+      { batchSize: 10, leaseMs: 30_000 },
+    );
+
+    await dispatcher.dispatchOnce();
+    await expect
+      .poll(
+        async () =>
+          (await ticketsRepository.getTicketDetail(ticketId)).ticket
+            .processingStatus,
+        { timeout: 2_000 },
+      )
+      .toBe("failed");
+
+    await expect(
+      ticketsRepository.getTicketDetail(ticketId),
+    ).resolves.toMatchObject({
+      ticket: { processingStatus: "failed", slaDueAt: null },
+    });
+    const reprocessed = await ticketsRepository.reprocessTicket({
+      ticketId,
+      expectedVersion: 1,
+    });
+    expect(reprocessed.processingStatus).toBe("pending");
+    await worker.close();
+    await queueWithRetries.close();
+  });
+
+  it("marks a Ticket as failed after exhausting transient retries", async () => {
+    const ticketId = await createPendingTicket("fail-transient");
+    const holidays = new FakeHolidayProvider({ mode: "500" });
+    const queueWithRetries = createTicketSlaQueue(redis as Redis, {
+      attempts: 2,
+      backoffMs: 1,
+    });
+    const worker = createTicketSlaWorker(
+      redis as Redis,
+      new TicketSlaProcessor(db, holidays),
+    );
+    const dispatcher = new OutboxDispatcher(
+      db,
+      queueWithRetries,
+      { now: () => now },
+      { batchSize: 10, leaseMs: 30_000 },
+    );
+
+    await dispatcher.dispatchOnce();
+    await expect
+      .poll(
+        async () =>
+          (await ticketsRepository.getTicketDetail(ticketId)).ticket
+            .processingStatus,
+        { timeout: 2_000 },
+      )
+      .toBe("failed");
+
+    expect(holidays.calls).toBe(2);
+    await expect(
+      ticketsRepository.getTicketDetail(ticketId),
+    ).resolves.toMatchObject({
+      ticket: { processingStatus: "failed", slaDueAt: null },
+    });
+    await worker.close();
+    await queueWithRetries.close();
   });
 
   async function createPendingTicket(idempotencyKey: string): Promise<string> {
