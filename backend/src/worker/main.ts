@@ -39,6 +39,7 @@ const holidays = new CachedHolidayProvider(holidaySource, {
 const processor = new TicketSlaProcessingService(
   new PostgresTicketSlaProcessingStore(db),
   holidays,
+  { slaHoursByPriority: config.slaHoursByPriority },
 );
 const worker = createTicketSlaWorker(dependencies.redis, processor);
 const dispatcher = new OutboxDispatcher(

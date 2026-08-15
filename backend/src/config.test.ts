@@ -6,6 +6,10 @@ const originalEnvironment = {
   databaseUrl: process.env.DATABASE_URL,
   holidayProviderMode: process.env.HOLIDAY_PROVIDER_MODE,
   redisUrl: process.env.REDIS_URL,
+  slaCriticalHours: process.env.SLA_CRITICAL_HOURS,
+  slaHighHours: process.env.SLA_HIGH_HOURS,
+  slaMediumHours: process.env.SLA_MEDIUM_HOURS,
+  slaLowHours: process.env.SLA_LOW_HOURS,
 };
 
 beforeEach(() => {
@@ -20,6 +24,13 @@ afterEach(() => {
     originalEnvironment.holidayProviderMode,
   );
   restoreEnvironment("REDIS_URL", originalEnvironment.redisUrl);
+  restoreEnvironment(
+    "SLA_CRITICAL_HOURS",
+    originalEnvironment.slaCriticalHours,
+  );
+  restoreEnvironment("SLA_HIGH_HOURS", originalEnvironment.slaHighHours);
+  restoreEnvironment("SLA_MEDIUM_HOURS", originalEnvironment.slaMediumHours);
+  restoreEnvironment("SLA_LOW_HOURS", originalEnvironment.slaLowHours);
 });
 
 function restoreEnvironment(name: string, value: string | undefined): void {
@@ -43,5 +54,27 @@ describe("readRuntimeConfig", () => {
     process.env.HOLIDAY_PROVIDER_MODE = "unavailable";
 
     expect(() => readRuntimeConfig()).toThrow("Invalid HOLIDAY_PROVIDER_MODE");
+  });
+
+  it("reads configurable SLA durations from the environment", () => {
+    process.env.SLA_CRITICAL_HOURS = "0.01";
+    process.env.SLA_HIGH_HOURS = "0.02";
+    process.env.SLA_MEDIUM_HOURS = "0.03";
+    process.env.SLA_LOW_HOURS = "0.04";
+
+    expect(readRuntimeConfig().slaHoursByPriority).toEqual({
+      critical: 0.01,
+      high: 0.02,
+      medium: 0.03,
+      low: 0.04,
+    });
+  });
+
+  it("rejects a non-positive SLA duration", () => {
+    process.env.SLA_CRITICAL_HOURS = "0";
+
+    expect(() => readRuntimeConfig()).toThrow(
+      "Invalid positive number in SLA_CRITICAL_HOURS",
+    );
   });
 });

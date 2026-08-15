@@ -62,4 +62,20 @@ describe("calculateSlaDueAt", () => {
 
     expect(dueAt.toISOString()).toBe("2026-08-18T16:00:00.000Z");
   });
+
+  it("uses injected SLA durations", () => {
+    const dueAt = calculateSlaDueAt({
+      createdAt: new Date("2026-08-17T13:00:00.000Z"),
+      priority: "critical",
+      holidays: new Set(),
+      slaHoursByPriority: {
+        critical: 0.5,
+        high: 8,
+        medium: 24,
+        low: 48,
+      },
+    });
+
+    expect(dueAt.toISOString()).toBe("2026-08-17T13:30:00.000Z");
+  });
 });

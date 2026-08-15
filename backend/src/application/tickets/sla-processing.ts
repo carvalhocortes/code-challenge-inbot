@@ -2,7 +2,10 @@ import { ticketSlaJobSchema } from "@inbot/shared";
 
 import { classifyProcessingFailure } from "../../domain/processing-failure.js";
 import type { ProcessingFailure } from "../../domain/processing-failure.js";
-import { calculateSlaDueAt } from "../../domain/sla.js";
+import {
+  calculateSlaDueAt,
+  type SlaHoursByPriority,
+} from "../../domain/sla.js";
 import type { Clock, TicketPriority } from "../../domain/ticket.js";
 
 export type TicketSlaProcessingResult = "processed" | "ignored";
@@ -30,12 +33,23 @@ export interface TicketSlaProcessingStore {
   ): Promise<void>;
 }
 
+export interface TicketSlaProcessingOptions {
+  clock?: Clock;
+  slaHoursByPriority?: SlaHoursByPriority;
+}
+
 export class TicketSlaProcessingService {
+  private readonly clock: Clock;
+  private readonly slaHoursByPriority: SlaHoursByPriority | undefined;
+
   constructor(
     private readonly store: TicketSlaProcessingStore,
     private readonly holidayProvider: HolidayProvider,
-    private readonly clock: Clock = { now: () => new Date() },
-  ) {}
+    options: TicketSlaProcessingOptions = {},
+  ) {
+    this.clock = options.clock ?? { now: () => new Date() };
+    this.slaHoursByPriority = options.slaHoursByPriority;
+  }
 
   async process(payload: unknown): Promise<TicketSlaProcessingResult> {
     const job = ticketSlaJobSchema.parse(payload);
@@ -56,6 +70,7 @@ export class TicketSlaProcessingService {
       createdAt: claimedTicket.createdAt,
       priority: claimedTicket.priority,
       holidays,
+      slaHoursByPriority: this.slaHoursByPriority,
     });
     const completed = await this.store.complete(
       job.ticketId,
