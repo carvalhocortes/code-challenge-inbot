@@ -34,6 +34,176 @@ os dados locais.
 | PostgreSQL |  5432 | `pg_isready`                             |
 | Redis      |  6379 | `redis-cli ping`                         |
 
+## Como avaliar comportamentos operacionais
+
+Os cenários abaixo existem para demonstrar falha controlada, recuperação e
+garantias de consistência observáveis pelo avaliador.
+
+### Falha de processamento do SLA
+
+O Worker aceita modos determinísticos para o provedor de feriados via
+`HOLIDAY_PROVIDER_MODE`.
+
+1. Defina `HOLIDAY_PROVIDER_MODE=400` no arquivo `.env`.
+2. Reinicie apenas o Worker:
+
+```bash
+docker compose --env-file .env up -d --force-recreate worker
+```
+
+3. Crie um Ticket pela SPA ou pela API.
+4. Consulte o detalhe do Ticket até `processingStatus` virar `failed`.
+
+Resultado esperado: o Ticket termina com `processingStatus=failed` e `slaDueAt`
+permanece `null`.
+
+### Recuperar um Ticket com falha
+
+1. Corrija a causa da falha. Exemplo: volte `HOLIDAY_PROVIDER_MODE=success`.
+2. Reinicie o Worker:
+
+```bash
+docker compose --env-file .env up -d --force-recreate worker
+```
+
+3. Busque o `ETag` atual do Ticket:
+
+```bash
+curl -i http://localhost:3000/tickets/<ticket-id>
+```
+
+4. Reprocesse com `If-Match`:
+
+```bash
+curl -i -X POST \
+  http://localhost:3000/tickets/<ticket-id>/reprocess \
+  -H 'If-Match: "<versao-atual>"'
+```
+
+Resultado esperado: a API responde `202`, devolve novo `ETag` e o Ticket volta
+para `pending` até o Worker concluir o SLA.
+
+### Redis indisponível
+
+1. Pare o Redis:
+
+```bash
+docker compose stop redis
+```
+
+2. Consulte a prontidão da API:
+
+```bash
+curl -i http://localhost:3000/health/ready
+```
+
+3. Observe os logs do Worker:
+
+```bash
+docker compose logs -f worker
+```
+
+4. Suba o Redis novamente:
+
+```bash
+docker compose start redis
+```
+
+Resultado esperado: `/health/ready` retorna `503` enquanto o Redis está fora. A
+intenção de processamento continua persistida no PostgreSQL e o Worker retoma a
+publicação/processamento quando o Redis volta.
+
+### PostgreSQL indisponível
+
+1. Pare o PostgreSQL:
+
+```bash
+docker compose stop postgres
+```
+
+2. Consulte a prontidão da API:
+
+```bash
+curl -i http://localhost:3000/health/ready
+```
+
+3. Observe os logs da API e do Worker:
+
+```bash
+docker compose logs -f api
+docker compose logs -f worker
+```
+
+4. Suba o PostgreSQL novamente:
+
+```bash
+docker compose start postgres
+```
+
+Resultado esperado: `/health/ready` retorna `503` e operações de leitura,
+criação, atualização e processamento deixam de funcionar enquanto o PostgreSQL
+está fora, porque ele é a fonte de verdade do sistema.
+
+### Simular idempotência
+
+Repita o mesmo `POST /tickets` com a mesma `Idempotency-Key` e o mesmo corpo:
+
+```bash
+curl -i -X POST http://localhost:3000/tickets \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-001' \
+  -d '{"title":"Falha login","description":"Nao entra","requesterEmail":"a@b.com","priority":"high"}'
+
+curl -i -X POST http://localhost:3000/tickets \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-001' \
+  -d '{"title":"Falha login","description":"Nao entra","requesterEmail":"a@b.com","priority":"high"}'
+```
+
+Resultado esperado: ambas respondem `201`, mas a segunda inclui o header
+`Idempotency-Replayed: true`. Se a mesma chave for reutilizada com payload
+diferente, a API responde `409`.
+
+### Simular ETag vencida
+
+1. Leia um Ticket e guarde o `ETag`:
+
+```bash
+curl -i http://localhost:3000/tickets/<ticket-id>
+```
+
+2. Faça uma alteração com esse `ETag`:
+
+```bash
+curl -i -X PATCH \
+  http://localhost:3000/tickets/<ticket-id>/status \
+  -H 'Content-Type: application/json' \
+  -H 'If-Match: "1"' \
+  -d '{"status":"in_progress"}'
+```
+
+3. Reutilize o `If-Match` antigo em outra alteração:
+
+```bash
+curl -i -X PATCH \
+  http://localhost:3000/tickets/<ticket-id>/priority \
+  -H 'Content-Type: application/json' \
+  -H 'If-Match: "1"' \
+  -d '{"priority":"critical"}'
+```
+
+Resultado esperado: a segunda alteração falha com `412` e código
+`ticket.version_conflict`, porque a versão local do cliente ficou defasada.
+
+## Edge cases para avaliar
+
+| Caso                                      | Como simular                                                                  | Resultado esperado                                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Falha transitória no provedor de feriados | Definir `HOLIDAY_PROVIDER_MODE=500`, `429` ou `timeout` e reiniciar o Worker  | O BullMQ faz retry; se as tentativas acabarem, o Ticket termina em `failed`.                     |
+| Publicação repetida do Outbox             | Evidência principal nos testes de integração do Worker                        | Reentrega não deve duplicar efeito de negócio; jobs repetidos podem ser ignorados com segurança. |
+| Reprocessar Ticket no estado errado       | Tentar `POST /tickets/{id}/reprocess` depois de o Ticket já estar `processed` | A API responde `409` com código `ticket.reprocess_not_allowed`.                                  |
+| Alterar prioridade de Ticket fechado      | Fechar o Ticket e depois tentar mudar a prioridade                            | A API responde `409`, pois a regra de domínio bloqueia a operação.                               |
+
 ## Decisões técnicas e trade-offs
 
 - **Monólito modular com dois processos:** API e Worker compartilham domínio,
