@@ -1,22 +1,20 @@
 # Gestão de Tickets InBot
 
-Aplicação full stack para criar, acompanhar e conduzir tickets de suporte. A API persiste o Ticket e uma intenção de processamento na mesma transação; um Worker calcula o SLA em segundo plano e a SPA acompanha o resultado sem recarga manual.
+Solução do cenário **Gestão de Tickets** da [avaliação técnica](docs/Avaliação%20Senior.pdf).
+Permite criar, consultar e conduzir Tickets de suporte enquanto o prazo de SLA é
+calculado em segundo plano.
 
-## O que está implementado
+## Entrega
 
-- Criação idempotente com `Idempotency-Key`, histórico imutável e processamento assíncrono por Outbox e BullMQ.
-- Consulta, filtros, paginação, detalhe, alteração de status/prioridade e reprocessamento com concorrência otimista por `ETag`/`If-Match`.
-- Cálculo de SLA em horário útil brasileiro, incluindo fins de semana e feriados, com cache, retry e falha definitiva observável.
-- SPA React organizada em Feature-Sliced Design, com estados de carregamento, erro, conflito persistente, teclado e layout responsivo.
-- Seed idempotente, testes unitários, integrações PostgreSQL/Redis reais e Playwright em ambiente temporário.
+- SPA React para criação, listagem com busca/filtros/paginação e detalhe do Ticket.
+- API Fastify com validação, Problem Details, idempotência e concorrência otimista.
+- Worker BullMQ que calcula SLA com feriados nacionais da BrasilAPI, retry e cache.
+- PostgreSQL como fonte de verdade, com histórico imutável e Transactional Outbox.
+- Docker Compose, seed idempotente e testes unitários, de integração e ponta a ponta.
 
-## Pré-requisitos
+## Executar localmente
 
-- Node.js 22
-- Corepack
-- Docker Compose
-
-## Início rápido
+Pré-requisitos: Node.js 22, Corepack e Docker Compose.
 
 ```bash
 corepack enable
@@ -25,98 +23,128 @@ cp .env.example .env
 docker compose --env-file .env up --build --wait
 ```
 
-Depois, abra a SPA em `http://localhost:5173`. A API fica em `http://localhost:3000`.
+Abra a SPA em `http://localhost:5173`; a API está em `http://localhost:3000`.
+Para encerrar, execute `docker compose down`; adicione `--volumes` para descartar
+os dados locais.
 
-| Serviço    | Porta padrão | Health check                             |
-| ---------- | ------------ | ---------------------------------------- |
-| Frontend   | 5173         | `http://localhost:5173`                  |
-| API        | 3000         | `GET /health/live` e `GET /health/ready` |
-| PostgreSQL | 5432         | `pg_isready`                             |
-| Redis      | 6379         | `redis-cli ping`                         |
+| Serviço    | Porta | Verificação                              |
+| ---------- | ----: | ---------------------------------------- |
+| Frontend   |  5173 | `http://localhost:5173`                  |
+| API        |  3000 | `GET /health/live` e `GET /health/ready` |
+| PostgreSQL |  5432 | `pg_isready`                             |
+| Redis      |  6379 | `redis-cli ping`                         |
 
-Para encerrar e manter os dados locais:
+## Decisões técnicas e trade-offs
 
-```bash
-docker compose down
-```
+- **Monólito modular com dois processos:** API e Worker compartilham domínio,
+  mas escalam e falham de forma independente; microserviços seriam custo sem
+  benefício proporcional para este escopo.
+- **PostgreSQL + Outbox:** Ticket, histórico, chave idempotente e intenção de
+  processamento são gravados na mesma transação. Redis é a fila, não a fonte de
+  verdade; publicação pode repetir, mas o efeito persistido para a versão atual
+  é idempotente.
+- **Fastify, Zod e Drizzle:** mantêm o adapter HTTP fino, contratos validados e
+  consultas tipadas sem esconder transações ou índices importantes.
+- **Polling condicional:** a SPA consulta novamente apenas enquanto há Ticket
+  visível pendente ou processando. WebSocket/SSE não são necessários para a demonstração.
 
-Para também remover os volumes locais:
+## Arquitetura C4
 
-```bash
-docker compose down --volumes
-```
+Os detalhes estruturais, os fluxos assíncronos, os invariantes de dados e a
+implantação local estão documentados em:
 
-## Variáveis relevantes
+- [Contexto, contêineres e componentes](docs/architecture/c4.md)
+- [Fluxos de execução](docs/architecture/runtime-flows.md)
+- [Dados e invariantes](docs/architecture/data-and-invariants.md)
+- [Implantação e operação local](docs/architecture/deployment.md)
 
-Copie `.env.example` para `.env`; ele contém somente credenciais locais de desenvolvimento. Não versione o arquivo `.env`.
-
-| Variável                | Padrão                  | Uso                                                                                                               |
-| ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `CORS_ORIGIN`           | `http://localhost:5173` | Origem permitida para a SPA.                                                                                      |
-| `HOLIDAY_PROVIDER_MODE` | `brasil-api`            | `brasil-api` usa BrasilAPI; `success`, `timeout`, `429`, `500` e `400` são modos determinísticos de demonstração. |
-| `SLA_RETRY_ATTEMPTS`    | `3`                     | Número máximo de tentativas BullMQ.                                                                               |
-| `SLA_RETRY_BACKOFF_MS`  | `1000`                  | Base do backoff exponencial em milissegundos.                                                                     |
-
-`HOLIDAY_PROVIDER_MODE` é lido pelo Worker. Para trocar o modo de uma demonstração em execução, recrie somente o Worker com a variável desejada.
-
-## Seed de desenvolvimento
-
-O seed é separado das migrations e pode ser executado repetidas vezes. Ele insere quatro Tickets sintéticos com prioridades, status de atendimento e estados de processamento diferentes. Não cria chaves de idempotência nem mensagens de Outbox artificiais.
-
-Com o Compose em execução:
+## Qualidade, segurança e limites
 
 ```bash
-docker compose exec api pnpm --filter @inbot/backend db:seed
-```
-
-Fora do Docker, com PostgreSQL e Redis locais configurados no `.env`:
-
-```bash
-corepack pnpm db:seed
-```
-
-## Testes e verificações
-
-```bash
-# Tipos e builds de todos os workspaces
 corepack pnpm typecheck
 corepack pnpm build
-
-# Unitários e integrações; as integrações usam Testcontainers
 corepack pnpm --dir backend test
 corepack pnpm --dir frontend test
 corepack pnpm --dir shared test
-
-# E2E: cria Compose isolado nas portas 3100/5174 e o remove ao final
 corepack pnpm test:e2e
-
-# Dependências de produção
 corepack pnpm audit --prod
 ```
 
-O E2E usa `HOLIDAY_PROVIDER_MODE=success`, cria um Ticket pela SPA, aguarda o cálculo de SLA e altera o status. O banco, Redis e filas pertencem ao projeto Compose `inbot-e2e`, isolado do ambiente local normal.
+Entradas HTTP são validadas; erros seguem Problem Details sem detalhes internos;
+logs removem e-mail, descrição, cookies e autorização; CORS, Helmet, limite de
+corpo e rate limit estão ativos. Esta é uma demonstração local: autenticação,
+autorização, TLS de produção, WAF, DAST, alertas centralizados e secret manager
+não estão implementados e não devem ser alegados como existentes.
 
-## Roteiro de demonstração
+## Se o sistema tivesse um milhão de acessos
 
-O roteiro verificável de criação, idempotência, retry, falha e reprocessamento está em [docs/07-evidencias-e-demonstracao.md](docs/07-evidencias-e-demonstracao.md).
+Primeiro mediria tráfego, proporção leitura/escrita, p95/p99, backlog, pool de
+conexões, uso de PostgreSQL/Redis e SLOs. Depois tornaria API e frontend
+stateless atrás de balanceador, adotaria paginação por cursor para consultas
+profundas e revisaria índices com `EXPLAIN ANALYZE`. Réplicas de Worker, Redis
+HA, retenção de jobs, PgBouncer, réplicas de leitura, cache distribuído e
+observabilidade seriam introduzidos somente conforme a evidência de carga.
 
-## Segurança e limites
+## Perguntas abertas
 
-A matriz de controles está em [docs/02-seguranca-owasp.md](docs/02-seguranca-owasp.md) e a evidência da revisão E8 está em [docs/07-evidencias-e-demonstracao.md](docs/07-evidencias-e-demonstracao.md#segurança-e-auditoria-de-dependências).
+### 1. Integração resiliente
 
-Esta é uma demonstração local. Autenticação, autorização por Ticket, TLS de produção, WAF, DAST, SCA contínuo, alerting centralizado e gestão de segredos em cloud não estão implementados. Não exponha a aplicação publicamente como se esses controles existissem.
+Isolo a API externa atrás de uma porta e a consumo em Worker, nunca no caminho
+crítico HTTP. Defino timeout, validação de resposta, classificação de falhas,
+retry com backoff para timeout/429/5xx e cache com TTL. Persisto a intenção antes
+de enfileirar e torno o consumidor idempotente; depois do limite de tentativas,
+exponho estado de falha recuperável. Neste projeto, a BrasilAPI segue esse fluxo.
 
-## Arquitetura e documentação
+### 2. Refinamento de requisito
 
-- [Escopo e cenários BDD](docs/01-escopo-entrega-e-bdd.md)
-- [Matriz OWASP](docs/02-seguranca-owasp.md)
-- [Contrato HTTP e Problem Details](docs/03-contratos-http.md)
-- [Checklist de implementação](docs/04-checklist-pre-codigo.md)
-- [Experiência da SPA](docs/05-front-end.md)
-- [Dados, escala e demonstração](docs/06-estrategia-de-dados-e-escala.md)
-- [Decisões arquiteturais](docs/adr/README.md)
-- [Glossário](CONTEXT.md)
+Começo por objetivo, ator, resultado mensurável e restrições; em seguida esclareço
+exemplos, exceções, dados, segurança, operação e critérios de aceite. Registro
+contratos e cenários observáveis antes de código e transformo decisões caras de
+reverter em ADRs. Priorizo uma fatia vertical de maior risco, valido cedo e só
+então detalho melhorias que não mudam a proposta de valor.
 
-## Escopo excluído
+### 3. Idempotência
 
-Não fazem parte desta entrega: autenticação/autorização, multitenancy, anexos, notificações, WebSocket/SSE, analytics, Kafka, microsserviços, Kubernetes, deployment em cloud, event sourcing, CQRS e otimizações de escala sem medição.
+O cliente envia uma `Idempotency-Key` por tentativa lógica; o servidor persiste
+a chave, hash canônico, Ticket e intenção de processamento na mesma transação. A
+mesma chave com o mesmo corpo retorna o Ticket original; com corpo diferente,
+retorna conflito. Índice único protege concorrência e consumidores usam uma chave
+determinística e versão para tolerar reentrega de jobs.
+
+### 4. Síncrono vs. assíncrono
+
+Mantenho síncrono o que valida, autoriza e persiste uma mudança pequena que o
+usuário precisa confirmar imediatamente. Uso fila para I/O lento, dependências
+instáveis, processamento pesado, retry ou trabalho que pode terminar depois;
+respondo com estado observável e UX de acompanhamento. A decisão considera SLA,
+consistência, custo de falha, volume, idempotência e experiência do usuário.
+
+### 5. Segurança
+
+Em uma API pública aplico autenticação, autorização por recurso, TLS, gestão de
+segredos, validação estrita, queries parametrizadas, rate limit, CORS mínimo,
+headers seguros, logs redigidos e erros seguros. Também mantenho dependências
+atualizadas, auditoria, monitoramento e testes de abuso. Nesta entrega local,
+os controles de transporte e validação existem; autenticação e produção não.
+
+### 6. Qualidade e entrega
+
+Defino o MVP pela menor fatia que entrega valor e testa os riscos principais,
+não pela lista maior de recursos. Para este caso: criar, persistir, publicar,
+processar SLA, refletir o estado na SPA e recuperar falhas. Segurança essencial,
+contratos, testes críticos e execução reproduzível não são débito técnico;
+analytics, notificações, escala preventiva e outros extras são evolução explícita.
+
+### 7. Governança e IA
+
+Uso IA para acelerar exploração, rascunhos, testes e revisão, mas não para
+transferir responsabilidade técnica. Não envio segredos ou dados pessoais ao
+modelo; reviso mudanças, dependências e permissões, e valido com testes, linters
+e execução real. Decisões e contratos ficam versionados para que o time consiga
+entender, questionar e manter o sistema sem depender do prompt original.
+
+## Escopo não implementado
+
+Autenticação/autorização, multitenancy, anexos, notificações, WebSocket/SSE,
+analytics, Kafka, Kubernetes, event sourcing e infraestrutura de produção estão
+fora do escopo desta demonstração.
