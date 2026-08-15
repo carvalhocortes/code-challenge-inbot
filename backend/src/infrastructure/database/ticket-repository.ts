@@ -427,24 +427,3 @@ function canonicalJson(value: unknown): string {
 
   return JSON.stringify(value);
 }
-
-// Temporary internal aliases preserve the API adapter while its composition is
-// migrated in the following refactor commit.
-export { PostgresTicketRepository as TicketRepository };
-export type { Database } from "./database.js";
-export type {
-  ChangeTicketPriorityCommand,
-  CreateTicketCommand as CreateTicketWithProcessingIntentCommand,
-  CreateTicketResult as CreateTicketWithProcessingIntentResult,
-  ReprocessTicketCommand,
-  TicketDetail,
-  TicketHistoryEntry,
-  TicketList,
-  UpdateTicketStatusCommand,
-} from "../../application/tickets/contracts.js";
-export {
-  IdempotencyKeyReusedError,
-  TicketNotFoundError,
-  TicketReprocessNotAllowedError,
-  TicketVersionConflictError,
-} from "../../application/tickets/errors.js";
