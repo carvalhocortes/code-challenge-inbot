@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { createTicketRequestSchema, type TicketResponse } from "@inbot/shared";
+import {
+  createTicketRequestSchema,
+  listTicketsQuerySchema,
+  type ListTicketsResponse,
+  type TicketResponse,
+} from "@inbot/shared";
 import { drizzle } from "drizzle-orm/node-postgres";
 import Fastify, { type FastifyInstance } from "fastify";
 
@@ -9,6 +14,7 @@ import type { Ticket } from "../domain/ticket.js";
 import {
   type CreateTicketWithProcessingIntentCommand,
   type CreateTicketWithProcessingIntentResult,
+  type TicketList,
   TicketRepository,
 } from "../infrastructure/database/ticket-repository.js";
 import * as schema from "../infrastructure/database/schema.js";
@@ -23,6 +29,9 @@ export interface ApiDependencies {
     createTicketWithProcessingIntent(
       command: CreateTicketWithProcessingIntentCommand,
     ): Promise<CreateTicketWithProcessingIntentResult>;
+    listTickets(
+      query: Parameters<TicketRepository["listTickets"]>[0],
+    ): Promise<TicketList>;
   };
   createTicketId(): string;
   checkReadiness(): Promise<void>;
@@ -106,6 +115,37 @@ export function buildApi(
     return reply
       .code(result.kind === "created" ? 201 : 200)
       .send(toTicketResponse(result.ticket));
+  });
+
+  app.get("/tickets", async (request, reply) => {
+    const parsedQuery = listTicketsQuerySchema.safeParse(request.query);
+
+    if (!parsedQuery.success) {
+      return reply
+        .type("application/problem+json")
+        .code(422)
+        .send({
+          type: "/problems/request-validation-failed",
+          title: "Request validation failed",
+          status: 422,
+          detail: "A requisição não atende ao contrato.",
+          instance: request.url,
+          code: "request.validation_failed",
+          requestId: request.id,
+          errors: parsedQuery.error.issues.map((issue) => ({
+            field: issue.path.join(".") || "query",
+            reason: validationReason(issue.code),
+          })),
+        });
+    }
+
+    const result = await dependencies.tickets.listTickets(parsedQuery.data);
+    const response: ListTicketsResponse = {
+      items: result.items.map(toTicketResponse),
+      meta: result.meta,
+    };
+
+    return reply.send(response);
   });
 
   app.get("/health/live", async () => ({ status: "live" }));

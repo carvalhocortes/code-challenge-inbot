@@ -132,3 +132,74 @@ describe("POST /tickets", () => {
     expect(createTicketWithProcessingIntent).not.toHaveBeenCalled();
   });
 });
+
+describe("GET /tickets", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("returns the paginated Ticket query with public timestamps", async () => {
+    const listTickets = vi.fn(async () => ({
+      items: [
+        {
+          id: ticketId,
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high" as const,
+          status: "open" as const,
+          processingStatus: "pending" as const,
+          slaDueAt: null,
+          version: 1,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      meta: { page: 2, pageSize: 5, total: 6, totalPages: 2 },
+    }));
+    const dependencies: ApiDependencies = {
+      tickets: { listTickets } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickets?page=2&pageSize=5&q=acesso&status=open&priority=high",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      items: [
+        {
+          id: ticketId,
+          title: "Acesso ao sistema indisponível",
+          description:
+            "O operador não consegue acessar o sistema desde as 09:00.",
+          requesterEmail: "operador@example.com",
+          priority: "high",
+          status: "open",
+          processingStatus: "pending",
+          slaDueAt: null,
+          version: 1,
+          createdAt: "2026-08-14T12:00:00.000Z",
+          updatedAt: "2026-08-14T12:00:00.000Z",
+        },
+      ],
+      meta: { page: 2, pageSize: 5, total: 6, totalPages: 2 },
+    });
+    expect(listTickets).toHaveBeenCalledWith({
+      page: 2,
+      pageSize: 5,
+      q: "acesso",
+      status: "open",
+      priority: "high",
+    });
+  });
+});
