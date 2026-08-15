@@ -10,7 +10,11 @@ import {
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
 
-import { TicketRepository, type Database } from "./ticket-repository.js";
+import {
+  IdempotencyKeyReusedError,
+  TicketRepository,
+  type Database,
+} from "./ticket-repository.js";
 import {
   idempotencyKeys,
   outboxMessages,
@@ -71,5 +75,61 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
     await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(1);
     await expect(db.select().from(ticketHistories)).resolves.toHaveLength(1);
     await expect(db.select().from(outboxMessages)).resolves.toHaveLength(1);
+  });
+
+  it("replays the original Ticket without duplicating persistence records", async () => {
+    const command = {
+      ticketId: randomUUID(),
+      idempotencyKey: "create-replay-001",
+      ticket: {
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "high" as const,
+      },
+    };
+    const first = await repository.createTicketWithProcessingIntent(command);
+    const replay = await repository.createTicketWithProcessingIntent({
+      ...command,
+      ticketId: randomUUID(),
+    });
+
+    expect(first.kind).toBe("created");
+    expect(replay).toMatchObject({
+      kind: "replayed",
+      ticket: { id: command.ticketId },
+    });
+    await expect(db.select().from(tickets)).resolves.toHaveLength(2);
+    await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(2);
+    await expect(db.select().from(ticketHistories)).resolves.toHaveLength(2);
+    await expect(db.select().from(outboxMessages)).resolves.toHaveLength(2);
+  });
+
+  it("rejects reuse of an idempotency key with different content", async () => {
+    const command = {
+      ticketId: randomUUID(),
+      idempotencyKey: "create-conflict-001",
+      ticket: {
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "high" as const,
+      },
+    };
+    await repository.createTicketWithProcessingIntent(command);
+
+    await expect(
+      repository.createTicketWithProcessingIntent({
+        ...command,
+        ticketId: randomUUID(),
+        ticket: { ...command.ticket, priority: "critical" },
+      }),
+    ).rejects.toBeInstanceOf(IdempotencyKeyReusedError);
+    await expect(db.select().from(tickets)).resolves.toHaveLength(3);
+    await expect(db.select().from(idempotencyKeys)).resolves.toHaveLength(3);
+    await expect(db.select().from(ticketHistories)).resolves.toHaveLength(3);
+    await expect(db.select().from(outboxMessages)).resolves.toHaveLength(3);
   });
 });
