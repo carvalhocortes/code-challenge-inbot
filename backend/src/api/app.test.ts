@@ -2,6 +2,7 @@ import type { CreateTicketRequest } from "@inbot/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildApi, type ApiDependencies } from "./app.js";
+import { TicketVersionConflictError } from "../infrastructure/database/ticket-repository.js";
 
 const ticketId = "8d3f6f3e-8aab-4ef6-a6b5-0ef7a8b9a1f2";
 const createdAt = new Date("2026-08-14T12:00:00.000Z");
@@ -278,5 +279,109 @@ describe("GET /tickets/:id", () => {
       ],
     });
     expect(getTicketDetail).toHaveBeenCalledWith(ticketId);
+  });
+});
+
+describe("PATCH /tickets/:id/status", () => {
+  const apps: Awaited<ReturnType<typeof buildApi>>[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  it("requires an ETag and updates the status with the expected version", async () => {
+    const updateTicketStatus = vi.fn(async () => ({
+      kind: "changed" as const,
+      previousStatus: "open" as const,
+      ticket: {
+        id: ticketId,
+        title: "Acesso ao sistema indisponível",
+        description:
+          "O operador não consegue acessar o sistema desde as 09:00.",
+        requesterEmail: "operador@example.com",
+        priority: "high" as const,
+        status: "in_progress" as const,
+        processingStatus: "pending" as const,
+        slaDueAt: null,
+        version: 2,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    }));
+    const dependencies: ApiDependencies = {
+      tickets: { updateTicketStatus } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const missingPrecondition = await app.inject({
+      method: "PATCH",
+      url: `/tickets/${ticketId}/status`,
+      payload: { status: "in_progress" },
+    });
+
+    expect(missingPrecondition.statusCode).toBe(428);
+    expect(missingPrecondition.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(missingPrecondition.json()).toMatchObject({
+      code: "ticket.precondition_required",
+      requestId: expect.any(String),
+    });
+    expect(updateTicketStatus).not.toHaveBeenCalled();
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/tickets/${ticketId}/status`,
+      headers: { "if-match": '"1"' },
+      payload: { status: "in_progress" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers.etag).toBe('"2"');
+    expect(response.json()).toMatchObject({
+      id: ticketId,
+      status: "in_progress",
+      version: 2,
+    });
+    expect(updateTicketStatus).toHaveBeenCalledWith({
+      ticketId,
+      expectedVersion: 1,
+      status: "in_progress",
+    });
+  });
+
+  it("returns a version conflict when If-Match is stale", async () => {
+    const dependencies: ApiDependencies = {
+      tickets: {
+        updateTicketStatus: async () => {
+          throw new TicketVersionConflictError();
+        },
+      } as ApiDependencies["tickets"],
+      createTicketId: () => ticketId,
+      checkReadiness: async () => undefined,
+      close: async () => undefined,
+    };
+    const app = buildApi(dependencies);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/tickets/${ticketId}/status`,
+      headers: { "if-match": '"1"' },
+      payload: { status: "in_progress" },
+    });
+
+    expect(response.statusCode).toBe(412);
+    expect(response.headers["content-type"]).toContain(
+      "application/problem+json",
+    );
+    expect(response.json()).toMatchObject({
+      code: "ticket.version_conflict",
+      requestId: expect.any(String),
+    });
   });
 });
