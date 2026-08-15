@@ -15,6 +15,8 @@ COPY frontend frontend
 COPY shared shared
 
 RUN pnpm --filter @inbot/shared build
+ARG VITE_API_BASE_URL=http://localhost:3000
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN pnpm --filter @inbot/frontend build
 
 RUN chown -R node:node /workspace

@@ -1,6 +1,6 @@
 # Plano de implementação
 
-**Status:** Pronto para implementação
+**Status:** Concluído em 2026-08-15
 
 **Versão:** 0.2
 
@@ -14,15 +14,15 @@ Cada etapa só é considerada concluída quando seu critério de aceite estiver 
 
 ## 2. Fontes de verdade
 
-| Tema | Documento de referência | Uso no plano |
-| --- | --- | --- |
-| Escopo, regras e BDD | [01 - Escopo e BDD](01-escopo-entrega-e-bdd.md) | Define comportamento obrigatório e fora de escopo. |
-| Contratos HTTP e jobs | [03 - Contratos HTTP](03-contratos-http.md) | Define schemas, headers, respostas e erros observáveis. |
-| Arquitetura e tecnologias | [ADR-001](adr/001-stack-tecnologica-e-arquitetura.md) | Define fronteiras, stack e trade-offs aceitos. |
-| Segurança | [02 - Segurança OWASP](02-seguranca-owasp.md) | Define controles mínimos e sua evidência. |
-| Experiência da SPA | [05 - Front-end](05-front-end.md) | Define rotas, estados, acessibilidade e aceitação visual. |
-| Dados, falhas e escala | [06 - Dados e escala](06-estrategia-de-dados-e-escala.md) | Define seed, fakes, isolamento e demonstração. |
-| Vocabulário | [CONTEXT.md](../CONTEXT.md) | Mantém nomes consistentes no código, testes e interface. |
+| Tema                      | Documento de referência                                   | Uso no plano                                              |
+| ------------------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| Escopo, regras e BDD      | [01 - Escopo e BDD](01-escopo-entrega-e-bdd.md)           | Define comportamento obrigatório e fora de escopo.        |
+| Contratos HTTP e jobs     | [03 - Contratos HTTP](03-contratos-http.md)               | Define schemas, headers, respostas e erros observáveis.   |
+| Arquitetura e tecnologias | [ADR-001](adr/001-stack-tecnologica-e-arquitetura.md)     | Define fronteiras, stack e trade-offs aceitos.            |
+| Segurança                 | [02 - Segurança OWASP](02-seguranca-owasp.md)             | Define controles mínimos e sua evidência.                 |
+| Experiência da SPA        | [05 - Front-end](05-front-end.md)                         | Define rotas, estados, acessibilidade e aceitação visual. |
+| Dados, falhas e escala    | [06 - Dados e escala](06-estrategia-de-dados-e-escala.md) | Define seed, fakes, isolamento e demonstração.            |
+| Vocabulário               | [CONTEXT.md](../CONTEXT.md)                               | Mantém nomes consistentes no código, testes e interface.  |
 
 ## 3. Sequência de entrega
 
@@ -147,6 +147,8 @@ A primeira fatia demonstrável é a criação de um Ticket com estado `pending` 
 
 ### E8 — Qualidade, segurança e demonstração
 
+**Status:** Concluída em 2026-08-15.
+
 **Objetivo:** fechar a entrega com evidência executável e documentação honesta.
 
 **Entregáveis:**
@@ -162,12 +164,12 @@ A primeira fatia demonstrável é a criação de um Ticket com estado `pending` 
 
 ## 5. Ordem de testes
 
-| Nível | Executado a partir de | Protege principalmente |
-| --- | --- | --- |
-| Unitário | E1 e continuamente | Calendário, SLA, transições, prioridade e classificação de falhas. |
-| Integração | E2 e continuamente | Transações, constraints, contratos HTTP, outbox, Redis e Worker. |
-| E2E | E6 e continuamente | Criação pela SPA, polling, processamento concluído e erro visível. |
-| Manual controlado | E5 e E8 | Smoke da BrasilAPI, teclado, responsividade e roteiro de apresentação. |
+| Nível             | Executado a partir de | Protege principalmente                                                 |
+| ----------------- | --------------------- | ---------------------------------------------------------------------- |
+| Unitário          | E1 e continuamente    | Calendário, SLA, transições, prioridade e classificação de falhas.     |
+| Integração        | E2 e continuamente    | Transações, constraints, contratos HTTP, outbox, Redis e Worker.       |
+| E2E               | E6 e continuamente    | Criação pela SPA, polling, processamento concluído e erro visível.     |
+| Manual controlado | E5 e E8               | Smoke da BrasilAPI, teclado, responsividade e roteiro de apresentação. |
 
 Não há meta de cobertura percentual isolada. Um cenário BDD crítico sem automação precisa ter justificativa e passo manual registrado no README antes da entrega.
 

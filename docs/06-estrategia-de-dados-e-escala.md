@@ -37,13 +37,13 @@ O cálculo de SLA recebe um relógio injetável. Testes usam datas fixas; o ambi
 
 O adapter de feriados terá uma implementação real e uma implementação fake controlada por teste. A fake deve permitir:
 
-| Modo | Comportamento esperado |
-| --- | --- |
-| `success` | Retorna feriados válidos e conclui o cálculo. |
-| `timeout` | Simula timeout e permite observar retry. |
-| `429` | Simula rate limit e permite observar backoff. |
-| `500` | Simula erro transitório até a última tentativa. |
-| `400` | Simula falha definitiva sem retry. |
+| Modo      | Comportamento esperado                          |
+| --------- | ----------------------------------------------- |
+| `success` | Retorna feriados válidos e conclui o cálculo.   |
+| `timeout` | Simula timeout e permite observar retry.        |
+| `429`     | Simula rate limit e permite observar backoff.   |
+| `500`     | Simula erro transitório até a última tentativa. |
+| `400`     | Simula falha definitiva sem retry.              |
 
 O teste de integração usa a fake. Um smoke test manual, separado dos testes determinísticos, valida a configuração do endpoint BrasilAPI e deve ser omitido quando a internet estiver indisponível.
 
@@ -125,10 +125,10 @@ Nenhuma dessas fases será antecipada na implementação do desafio sem evidênc
 
 ## 9. Critérios de aceite desta estratégia
 
-- [ ] Seed reproduzível e separado de migrations.
-- [ ] Dados não contêm PII real.
-- [ ] Fake da BrasilAPI cobre sucesso, timeout, `429`, `500` e `400`.
-- [ ] Testes limpam PostgreSQL, Redis e relógio entre cenários.
-- [ ] Roteiro de demonstração cobre sucesso, idempotência, retry e reprocessamento.
-- [ ] README explica honestamente o que está coberto hoje e o que depende de carga.
-- [ ] Plano de escala começa por métricas e SLOs, não por serviços adicionados preventivamente.
+- [x] Seed reproduzível e separado de migrations.
+- [x] Dados não contêm PII real.
+- [x] Fake da BrasilAPI cobre sucesso, timeout, `429`, `500` e `400`.
+- [x] Testes limpam PostgreSQL, Redis e relógio entre cenários.
+- [x] Roteiro de demonstração cobre sucesso, idempotência, retry e reprocessamento.
+- [x] README explica honestamente o que está coberto hoje e o que depende de carga.
+- [x] Plano de escala começa por métricas e SLOs, não por serviços adicionados preventivamente.

@@ -92,6 +92,7 @@ services:
       SLA_RETRY_ATTEMPTS: ${SLA_RETRY_ATTEMPTS:-3}
       SLA_RETRY_BACKOFF_MS: ${SLA_RETRY_BACKOFF_MS:-1000}
       HOLIDAY_CACHE_TTL_SECONDS: ${HOLIDAY_CACHE_TTL_SECONDS:-86400}
+      HOLIDAY_PROVIDER_MODE: ${HOLIDAY_PROVIDER_MODE:-brasil-api}
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,8 +105,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/frontend.Dockerfile
-    environment:
-      VITE_API_BASE_URL: http://localhost:${API_PORT:-3000}
+      args:
+        VITE_API_BASE_URL: http://localhost:${API_PORT:-3000}
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
