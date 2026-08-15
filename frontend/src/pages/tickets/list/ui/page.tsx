@@ -5,6 +5,7 @@ import type {
 } from "@inbot/shared";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { formatTicketDateTime } from "../../../../entities/ticket/lib/format";
 import { ProcessingStatus } from "../../../../entities/ticket/ui/processing-status";
 import {
   hasActiveProcessing,
@@ -266,7 +267,7 @@ function TicketTable({
               </td>
               <td data-label="SLA">{formatSla(ticket.slaDueAt)}</td>
               <td data-label="Atualizado">
-                {formatDateTime(ticket.updatedAt)}
+                {formatTicketDateTime(ticket.updatedAt)}
               </td>
               <td>
                 <Link className="table-link" to={`/tickets/${ticket.id}`}>
@@ -326,13 +327,5 @@ function statusLabel(status: TicketStatus): string {
 }
 
 function formatSla(value: string | null): string {
-  return value ? formatDateTime(value) : "Calculando prazo";
-}
-
-function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value));
+  return value ? formatTicketDateTime(value) : "Calculando prazo";
 }

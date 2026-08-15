@@ -640,6 +640,25 @@ describe("HTTP boundary safeguards", () => {
       "http://localhost:5173",
     );
     expect(first.headers["x-content-type-options"]).toBe("nosniff");
+
+    const patchPreflight = await app.inject({
+      method: "OPTIONS",
+      url: `/tickets/${ticketId}/status`,
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "PATCH",
+        "access-control-request-headers": "content-type,if-match",
+      },
+    });
+
+    expect(patchPreflight.statusCode).toBe(204);
+    expect(patchPreflight.headers["access-control-allow-methods"]).toContain(
+      "PATCH",
+    );
+    expect(patchPreflight.headers["access-control-allow-headers"]).toContain(
+      "if-match",
+    );
+
     expect(second.statusCode).toBe(429);
     expect(second.headers["content-type"]).toContain(
       "application/problem+json",

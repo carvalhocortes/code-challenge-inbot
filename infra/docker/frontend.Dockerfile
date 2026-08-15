@@ -12,7 +12,9 @@ COPY shared/package.json shared/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY frontend frontend
+COPY shared shared
 
+RUN pnpm --filter @inbot/shared build
 RUN pnpm --filter @inbot/frontend build
 
 RUN chown -R node:node /workspace

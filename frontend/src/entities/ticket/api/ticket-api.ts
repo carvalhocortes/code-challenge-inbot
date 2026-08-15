@@ -6,7 +6,9 @@ import {
   type ListTicketsQuery,
   type ListTicketsResponse,
   type TicketDetailResponse,
+  type TicketPriority,
   type TicketResponse,
+  type TicketStatus,
 } from "@inbot/shared";
 
 import { requestJson } from "../../../shared/api/http";
@@ -52,6 +54,65 @@ export class TicketApi {
 
     return result.data;
   }
+
+  async reprocess(ticketId: string, version: number): Promise<TicketResponse> {
+    const result = await requestJson(
+      `/tickets/${encodeURIComponent(ticketId)}/reprocess`,
+      ticketResponseSchema,
+      {
+        headers: { "If-Match": etagFor(version) },
+        method: "POST",
+      },
+    );
+
+    return result.data;
+  }
+
+  async updatePriority(
+    ticketId: string,
+    priority: TicketPriority,
+    version: number,
+  ): Promise<TicketResponse> {
+    const result = await requestJson(
+      `/tickets/${encodeURIComponent(ticketId)}/priority`,
+      ticketResponseSchema,
+      {
+        body: JSON.stringify({ priority }),
+        headers: {
+          "Content-Type": "application/json",
+          "If-Match": etagFor(version),
+        },
+        method: "PATCH",
+      },
+    );
+
+    return result.data;
+  }
+
+  async updateStatus(
+    ticketId: string,
+    status: TicketStatus,
+    version: number,
+  ): Promise<TicketResponse> {
+    const result = await requestJson(
+      `/tickets/${encodeURIComponent(ticketId)}/status`,
+      ticketResponseSchema,
+      {
+        body: JSON.stringify({ status }),
+        headers: {
+          "Content-Type": "application/json",
+          "If-Match": etagFor(version),
+        },
+        method: "PATCH",
+      },
+    );
+
+    return result.data;
+  }
 }
 
 export const ticketApi = new TicketApi();
+
+function etagFor(version: number): string {
+  return `"${version}"`;
+}
