@@ -29,6 +29,7 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
   let pool: pg.Pool | undefined;
   let repository: TicketRepository;
   let db: Database;
+  let currentTime = new Date("2026-08-17T13:00:00.000Z");
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16.8-bookworm").start();
@@ -42,7 +43,7 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
       ),
     });
     repository = new TicketRepository(db, {
-      now: () => new Date("2026-08-17T13:00:00.000Z"),
+      now: () => currentTime,
     });
   });
 
@@ -290,6 +291,56 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
           history[0].id,
         ]),
       ).rejects.toThrow("ticket_history is immutable");
+    });
+  });
+
+  describe("TicketRepository.listTickets", () => {
+    it("filters by text and returns stable createdAt-desc pagination", async () => {
+      currentTime = new Date("2026-08-17T13:00:00.000Z");
+      await repository.createTicketWithProcessingIntent({
+        ticketId: randomUUID(),
+        idempotencyKey: "list-001",
+        ticket: {
+          title: "Paginação de Tickets A",
+          description: "O primeiro Ticket usado para validar a paginação.",
+          requesterEmail: "operador@example.com",
+          priority: "low",
+        },
+      });
+      currentTime = new Date("2026-08-18T13:00:00.000Z");
+      await repository.createTicketWithProcessingIntent({
+        ticketId: randomUUID(),
+        idempotencyKey: "list-002",
+        ticket: {
+          title: "Paginação de Tickets B",
+          description: "O segundo Ticket usado para validar a paginação.",
+          requesterEmail: "operador@example.com",
+          priority: "low",
+        },
+      });
+
+      const page = await repository.listTickets({
+        page: 1,
+        pageSize: 1,
+        q: "Paginação de Tickets",
+      });
+
+      expect(page).toMatchObject({
+        items: [{ title: "Paginação de Tickets B" }],
+        meta: { page: 1, pageSize: 1, total: 2, totalPages: 2 },
+      });
+
+      const filtered = await repository.listTickets({
+        page: 1,
+        pageSize: 10,
+        status: "open",
+        priority: "low",
+      });
+
+      expect(filtered.items.map((ticket) => ticket.title)).toEqual([
+        "Paginação de Tickets B",
+        "Paginação de Tickets A",
+      ]);
     });
   });
 });

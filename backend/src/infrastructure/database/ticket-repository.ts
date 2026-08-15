@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { CreateTicketRequest } from "@inbot/shared";
-import { and, eq } from "drizzle-orm";
+import type { CreateTicketRequest, ListTicketsQuery } from "@inbot/shared";
+import { and, count, desc, eq, ilike, or, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 import {
@@ -44,6 +44,16 @@ export interface ChangeTicketPriorityCommand {
   ticketId: string;
   expectedVersion: number;
   priority: TicketPriority;
+}
+
+export interface TicketList {
+  items: Ticket[];
+  meta: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export class IdempotencyKeyReusedError extends Error {
@@ -287,6 +297,53 @@ export class TicketRepository {
 
       return change;
     });
+  }
+
+  async listTickets(query: ListTicketsQuery): Promise<TicketList> {
+    const conditions: SQL[] = [];
+
+    if (query.status !== undefined) {
+      conditions.push(eq(tickets.status, query.status));
+    }
+
+    if (query.priority !== undefined) {
+      conditions.push(eq(tickets.priority, query.priority));
+    }
+
+    if (query.q !== undefined) {
+      const pattern = `%${query.q}%`;
+      const textFilter = or(
+        ilike(tickets.title, pattern),
+        ilike(tickets.description, pattern),
+      );
+
+      if (textFilter !== undefined) {
+        conditions.push(textFilter);
+      }
+    }
+
+    const where = conditions.length === 0 ? undefined : and(...conditions);
+    const [rows, totals] = await Promise.all([
+      this.db
+        .select()
+        .from(tickets)
+        .where(where)
+        .orderBy(desc(tickets.createdAt), desc(tickets.id))
+        .limit(query.pageSize)
+        .offset((query.page - 1) * query.pageSize),
+      this.db.select({ total: count() }).from(tickets).where(where),
+    ]);
+    const total = totals[0]?.total ?? 0;
+
+    return {
+      items: rows.map(toDomainTicket),
+      meta: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / query.pageSize),
+      },
+    };
   }
 }
 
