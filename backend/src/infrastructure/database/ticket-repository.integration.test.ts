@@ -13,11 +13,11 @@ import {
 
 import {
   IdempotencyKeyReusedError,
-  TicketRepository,
   TicketReprocessNotAllowedError,
   TicketVersionConflictError,
-  type Database,
-} from "./ticket-repository.js";
+} from "../../application/tickets/errors.js";
+import type { Database } from "./database.js";
+import { PostgresTicketRepository } from "./ticket-repository.js";
 import {
   idempotencyKeys,
   outboxMessages,
@@ -28,7 +28,7 @@ import {
 describe("TicketRepository.createTicketWithProcessingIntent", () => {
   let container: StartedPostgreSqlContainer | undefined;
   let pool: pg.Pool | undefined;
-  let repository: TicketRepository;
+  let repository: PostgresTicketRepository;
   let db: Database;
   let currentTime = new Date("2026-08-17T13:00:00.000Z");
 
@@ -43,7 +43,7 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
         new URL("../../../drizzle", import.meta.url),
       ),
     });
-    repository = new TicketRepository(db, {
+    repository = new PostgresTicketRepository(db, {
       now: () => currentTime,
     });
   });

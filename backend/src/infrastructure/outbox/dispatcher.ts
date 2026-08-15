@@ -2,7 +2,7 @@ import type { TicketSlaJob } from "@inbot/shared";
 import { sql } from "drizzle-orm";
 
 import type { Clock } from "../../domain/ticket.js";
-import type { Database } from "../database/ticket-repository.js";
+import type { Database } from "../database/database.js";
 import {
   ticketSlaJobName,
   ticketSlaJobOptions,
