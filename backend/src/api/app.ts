@@ -94,6 +94,7 @@ export function buildApi(
 
   void app.register(cors, {
     origin: apiOptions.corsOrigin,
+    methods: ["GET", "HEAD", "POST", "PATCH"],
     exposedHeaders: ["etag", "idempotency-replayed", "x-request-id"],
   });
   void app.register(helmet);
