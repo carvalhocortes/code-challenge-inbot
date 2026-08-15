@@ -184,8 +184,12 @@ Fila: `ticket-sla`.
 `jobId` determinístico:
 
 ```text
-ticket:{ticketId}:processing:{version}
+ticket-{ticketId}-processing-{version}
 ```
+
+O hífen é usado como separador porque o BullMQ reserva `:` para a composição
+das chaves Redis. O valor continua determinístico por Ticket e versão de
+processamento.
 
 Payload:
 

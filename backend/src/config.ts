@@ -6,6 +6,9 @@ export interface RuntimeConfig {
   rateLimitWindowMs: number;
   databaseUrl: string;
   redisUrl: string;
+  outboxPollIntervalMs: number;
+  outboxBatchSize: number;
+  outboxLeaseMs: number;
 }
 
 function readRequired(name: string): string {
@@ -68,5 +71,8 @@ export function readRuntimeConfig(): RuntimeConfig {
     rateLimitWindowMs: readPositiveInteger("RATE_LIMIT_WINDOW_MS", 60_000),
     databaseUrl: readRequired("DATABASE_URL"),
     redisUrl: readRequired("REDIS_URL"),
+    outboxPollIntervalMs: readPositiveInteger("OUTBOX_POLL_INTERVAL_MS", 1_000),
+    outboxBatchSize: readPositiveInteger("OUTBOX_BATCH_SIZE", 10),
+    outboxLeaseMs: readPositiveInteger("OUTBOX_LEASE_SECONDS", 30) * 1_000,
   };
 }

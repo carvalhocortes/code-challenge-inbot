@@ -85,6 +85,9 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-10}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-30}
     depends_on:
       postgres:
         condition: service_healthy
