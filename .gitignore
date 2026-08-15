@@ -9,6 +9,8 @@ dist/
 build/
 out/
 coverage/
+frontend/playwright-report/
+frontend/test-results/
 .nyc_output/
 *.tsbuildinfo
 

@@ -11,6 +11,8 @@
     "build": "pnpm --recursive --if-present run build",
     "typecheck": "pnpm --recursive --if-present run typecheck",
     "test": "pnpm --recursive --if-present run test",
+    "test:e2e": "./scripts/test-e2e.sh",
+    "db:seed": "pnpm --filter @inbot/backend db:seed",
     "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json docker-compose.yml infra backend frontend shared",
     "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json docker-compose.yml infra backend frontend shared"
   },

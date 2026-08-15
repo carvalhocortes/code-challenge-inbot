@@ -13,7 +13,19 @@ export interface RuntimeConfig {
   slaRetryAttempts: number;
   slaRetryBackoffMs: number;
   holidayCacheTtlMs: number;
+  holidayProviderMode: HolidayProviderMode;
 }
+
+const holidayProviderModes = [
+  "brasil-api",
+  "success",
+  "timeout",
+  "429",
+  "500",
+  "400",
+] as const;
+
+export type HolidayProviderMode = (typeof holidayProviderModes)[number];
 
 function readRequired(name: string): string {
   const value = process.env[name];
@@ -63,6 +75,18 @@ function readPositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
+function readHolidayProviderMode(): HolidayProviderMode {
+  const value = readOptional("HOLIDAY_PROVIDER_MODE", "brasil-api");
+
+  if (holidayProviderModes.includes(value as HolidayProviderMode)) {
+    return value as HolidayProviderMode;
+  }
+
+  throw new Error(
+    `Invalid HOLIDAY_PROVIDER_MODE. Expected one of: ${holidayProviderModes.join(", ")}`,
+  );
+}
+
 export function readRuntimeConfig(): RuntimeConfig {
   return {
     apiPort: readPort("API_PORT", 3_000),
@@ -83,5 +107,6 @@ export function readRuntimeConfig(): RuntimeConfig {
     slaRetryBackoffMs: readPositiveInteger("SLA_RETRY_BACKOFF_MS", 1_000),
     holidayCacheTtlMs:
       readPositiveInteger("HOLIDAY_CACHE_TTL_SECONDS", 86_400) * 1_000,
+    holidayProviderMode: readHolidayProviderMode(),
   };
 }

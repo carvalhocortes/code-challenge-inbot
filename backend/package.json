@@ -9,6 +9,7 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx src/scripts/seed.ts",
     "dev:api": "tsx watch src/api/main.ts",
     "dev:worker": "tsx watch src/worker/main.ts",
     "start:api": "node dist/api/main.js",

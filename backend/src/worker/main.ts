@@ -5,6 +5,7 @@ import * as schema from "../infrastructure/database/schema.js";
 import {
   BrasilApiHolidayProvider,
   CachedHolidayProvider,
+  FakeHolidayProvider,
 } from "../infrastructure/holidays/holiday-provider.js";
 import { OutboxDispatcher } from "../infrastructure/outbox/dispatcher.js";
 import { createTicketSlaQueue } from "../infrastructure/queue/ticket-sla-queue.js";
@@ -28,13 +29,14 @@ const queue = createTicketSlaQueue(dependencies.redis, {
   attempts: config.slaRetryAttempts,
   backoffMs: config.slaRetryBackoffMs,
 });
-const holidays = new CachedHolidayProvider(
-  new BrasilApiHolidayProvider({ timeoutMs: config.brasilApiTimeoutMs }),
-  {
-    now: () => new Date(),
-    ttlMs: config.holidayCacheTtlMs,
-  },
-);
+const holidaySource =
+  config.holidayProviderMode === "brasil-api"
+    ? new BrasilApiHolidayProvider({ timeoutMs: config.brasilApiTimeoutMs })
+    : new FakeHolidayProvider({ mode: config.holidayProviderMode });
+const holidays = new CachedHolidayProvider(holidaySource, {
+  now: () => new Date(),
+  ttlMs: config.holidayCacheTtlMs,
+});
 const processor = new TicketSlaProcessor(db, holidays);
 const worker = createTicketSlaWorker(dependencies.redis, processor);
 const dispatcher = new OutboxDispatcher(
