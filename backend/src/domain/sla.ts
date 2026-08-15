@@ -1,6 +1,8 @@
 import type { TicketPriority } from "./ticket.js";
 
-const slaHoursByPriority: Record<TicketPriority, number> = {
+export type SlaHoursByPriority = Readonly<Record<TicketPriority, number>>;
+
+export const defaultSlaHoursByPriority: SlaHoursByPriority = {
   critical: 4,
   high: 8,
   medium: 24,
@@ -36,9 +38,12 @@ export interface CalculateSlaDueAtInput {
   createdAt: Date;
   priority: TicketPriority;
   holidays: ReadonlySet<string>;
+  slaHoursByPriority?: SlaHoursByPriority;
 }
 
 export function calculateSlaDueAt(input: CalculateSlaDueAtInput): Date {
+  const slaHoursByPriority =
+    input.slaHoursByPriority ?? defaultSlaHoursByPriority;
   let remainingMilliseconds =
     slaHoursByPriority[input.priority] * 60 * 60 * 1000;
   let current = moveToBusinessTime(

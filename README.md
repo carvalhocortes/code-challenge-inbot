@@ -54,6 +54,10 @@ Copie `.env.example` para `.env`; ele contém somente credenciais locais de dese
 | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `CORS_ORIGIN`           | `http://localhost:5173` | Origem permitida para a SPA.                                                                                      |
 | `HOLIDAY_PROVIDER_MODE` | `brasil-api`            | `brasil-api` usa BrasilAPI; `success`, `timeout`, `429`, `500` e `400` são modos determinísticos de demonstração. |
+| `SLA_CRITICAL_HOURS`    | `4`                     | Horas úteis de SLA para prioridade crítica.                                                                       |
+| `SLA_HIGH_HOURS`        | `8`                     | Horas úteis de SLA para prioridade alta.                                                                          |
+| `SLA_MEDIUM_HOURS`      | `24`                    | Horas úteis de SLA para prioridade média.                                                                         |
+| `SLA_LOW_HOURS`         | `48`                    | Horas úteis de SLA para prioridade baixa.                                                                         |
 | `SLA_RETRY_ATTEMPTS`    | `3`                     | Número máximo de tentativas BullMQ.                                                                               |
 | `SLA_RETRY_BACKOFF_MS`  | `1000`                  | Base do backoff exponencial em milissegundos.                                                                     |
 
