@@ -26,7 +26,7 @@ describe("central de Tickets", () => {
                 priority: "high",
                 status: "open",
                 processingStatus: "processing",
-                slaDueAt: null,
+                slaDueAt: "2026-08-17T16:00:00.000Z",
                 version: 1,
                 createdAt: "2026-08-15T12:00:00.000Z",
                 updatedAt: "2026-08-15T12:00:00.000Z",
@@ -58,6 +58,7 @@ describe("central de Tickets", () => {
 
     expect(await screen.findByText("Em processamento")).toBeVisible();
     expect(screen.getByText("Página 2 de 2")).toBeVisible();
+    expect(screen.getByText("17/08/2026, 13:00")).toBeVisible();
 
     await waitFor(() => {
       expect(String(fetchTicketApi.mock.calls[0]?.[0])).toContain(
