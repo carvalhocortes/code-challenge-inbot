@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -270,7 +270,7 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
       ).resolves.toEqual([{ processingVersion: 1 }, { processingVersion: 3 }]);
     });
 
-    it("does not enqueue processing for a completed Ticket", async () => {
+    it("does not enqueue processing for a processed Ticket", async () => {
       const ticketId = randomUUID();
       await repository.createTicketWithProcessingIntent({
         ticketId,
@@ -286,7 +286,7 @@ describe("TicketRepository.createTicketWithProcessingIntent", () => {
       await db
         .update(tickets)
         .set({
-          processingStatus: "completed",
+          processingStatus: "processed",
           version: 2,
           updatedAt: currentTime,
         })
