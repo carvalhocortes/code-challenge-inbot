@@ -4,4 +4,6 @@ packages:
   - shared
 
 allowBuilds:
+  cpu-features: false
   esbuild: true
+  ssh2: false
