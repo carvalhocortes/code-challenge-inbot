@@ -1,3 +1,5 @@
+import type { SlaHoursByPriority } from "./domain/sla.js";
+
 export interface RuntimeConfig {
   apiPort: number;
   corsOrigin: string;
@@ -14,6 +16,7 @@ export interface RuntimeConfig {
   slaRetryBackoffMs: number;
   holidayCacheTtlMs: number;
   holidayProviderMode: HolidayProviderMode;
+  slaHoursByPriority: SlaHoursByPriority;
 }
 
 const holidayProviderModes = [
@@ -75,6 +78,22 @@ function readPositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
+function readPositiveNumber(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return fallback;
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Invalid positive number in ${name}`);
+  }
+
+  return value;
+}
+
 function readHolidayProviderMode(): HolidayProviderMode {
   const value = readOptional("HOLIDAY_PROVIDER_MODE", "brasil-api");
 
@@ -108,5 +127,11 @@ export function readRuntimeConfig(): RuntimeConfig {
     holidayCacheTtlMs:
       readPositiveInteger("HOLIDAY_CACHE_TTL_SECONDS", 86_400) * 1_000,
     holidayProviderMode: readHolidayProviderMode(),
+    slaHoursByPriority: {
+      critical: readPositiveNumber("SLA_CRITICAL_HOURS", 4),
+      high: readPositiveNumber("SLA_HIGH_HOURS", 8),
+      medium: readPositiveNumber("SLA_MEDIUM_HOURS", 24),
+      low: readPositiveNumber("SLA_LOW_HOURS", 48),
+    },
   };
 }
