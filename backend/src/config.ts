@@ -18,6 +18,12 @@ function readRequired(name: string): string {
   return value;
 }
 
+function readOptional(name: string, fallback: string): string {
+  const value = process.env[name];
+
+  return value === undefined || value.trim() === "" ? fallback : value;
+}
+
 function readPort(name: string, fallback: number): number {
   const rawValue = process.env[name];
 
@@ -53,7 +59,7 @@ function readPositiveInteger(name: string, fallback: number): number {
 export function readRuntimeConfig(): RuntimeConfig {
   return {
     apiPort: readPort("API_PORT", 3_000),
-    corsOrigin: readRequired("CORS_ORIGIN"),
+    corsOrigin: readOptional("CORS_ORIGIN", "http://localhost:5173"),
     requestBodyLimitBytes: readPositiveInteger(
       "REQUEST_BODY_LIMIT_BYTES",
       1_048_576,

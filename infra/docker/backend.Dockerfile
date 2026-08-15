@@ -14,6 +14,7 @@ RUN pnpm install --frozen-lockfile
 COPY backend backend
 COPY shared shared
 
+RUN pnpm --filter @inbot/shared build
 RUN pnpm --filter @inbot/backend build
 
 USER node
