@@ -298,6 +298,13 @@ textarea[aria-invalid="true"] {
 .ticket-table tbody tr:hover {
   background: #132641;
 }
+.ticket-row-link {
+  cursor: pointer;
+}
+.ticket-row-link:focus-visible {
+  outline: 3px solid #2bc3d4;
+  outline-offset: -3px;
+}
 .table-link {
   font-weight: 700;
   white-space: nowrap;
@@ -346,11 +353,6 @@ textarea[aria-invalid="true"] {
   color: #b9e8cb;
   background: rgb(74 173 112 / 12%);
   border-color: #4aad70;
-}
-.sla-status-badge small {
-  color: inherit;
-  font-size: 0.68rem;
-  font-weight: 400;
 }
 .pagination {
   display: flex;

@@ -5,7 +5,7 @@ import type {
   TicketSlaStatus,
   TicketStatus,
 } from "@inbot/shared";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { formatTicketDateTime } from "../../../../entities/ticket/lib/format";
 import { ProcessingStatus } from "../../../../entities/ticket/ui/processing-status";
@@ -309,12 +309,16 @@ function TicketTable({
     processingStatus: "pending" | "processing" | "processed" | "failed";
     slaDueAt: string | null;
     slaStatus: TicketSlaStatus | null;
-    slaRemainingMs: number | null;
     status: TicketStatus;
     title: string;
-    updatedAt: string;
   }>;
 }) {
+  const navigate = useNavigate();
+
+  function openTicket(ticketId: string) {
+    void navigate(`/tickets/${ticketId}`);
+  }
+
   return (
     <div className="ticket-table-wrap">
       <table className="ticket-table">
@@ -326,15 +330,23 @@ function TicketTable({
             <th scope="col">Processamento</th>
             <th scope="col">SLA</th>
             <th scope="col">Status do SLA</th>
-            <th scope="col">Atualizado</th>
-            <th scope="col">
-              <span className="sr-only">Ação</span>
-            </th>
           </tr>
         </thead>
         <tbody>
           {tickets.map((ticket) => (
-            <tr key={ticket.id}>
+            <tr
+              className="ticket-row-link"
+              key={ticket.id}
+              onClick={() => openTicket(ticket.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openTicket(ticket.id);
+                }
+              }}
+              role="link"
+              tabIndex={0}
+            >
               <td data-label="Ticket">
                 <strong>{ticket.title}</strong>
               </td>
@@ -345,18 +357,7 @@ function TicketTable({
               </td>
               <td data-label="SLA">{formatSla(ticket.slaDueAt)}</td>
               <td data-label="Status do SLA">
-                <SlaStatusBadge
-                  remainingMs={ticket.slaRemainingMs}
-                  status={ticket.slaStatus}
-                />
-              </td>
-              <td data-label="Atualizado">
-                {formatTicketDateTime(ticket.updatedAt)}
-              </td>
-              <td>
-                <Link className="table-link" to={`/tickets/${ticket.id}`}>
-                  Abrir<span className="sr-only"> {ticket.title}</span>
-                </Link>
+                <SlaStatusBadge status={ticket.slaStatus} />
               </td>
             </tr>
           ))}

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TicketListPage } from "./page";
@@ -53,15 +54,27 @@ describe("central de Tickets", () => {
             "/tickets?page=2&q=acesso&status=open&priority=high&slaStatus=alert&slaSort=remaining_asc",
           ]}
         >
-          <TicketListPage />
+          <Routes>
+            <Route path="/tickets" element={<TicketListPage />} />
+            <Route path="/tickets/:ticketId" element={<p>Ticket aberto</p>} />
+          </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
     expect(await screen.findByText("Em processamento")).toBeVisible();
-    expect(screen.getByText("Alerta", { selector: "strong" })).toBeVisible();
+    expect(screen.getByText("Alerta", { selector: "span" })).toBeVisible();
     expect(screen.getByText("Página 2 de 2")).toBeVisible();
     expect(screen.getByText("17/08/2026, 13:00")).toBeVisible();
+    expect(
+      screen.queryByRole("columnheader", { name: "Atualizado" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Abrir")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("link", { name: /Acesso indisponível/ }),
+    );
+    expect(await screen.findByText("Ticket aberto")).toBeVisible();
 
     await waitFor(() => {
       expect(String(fetchTicketApi.mock.calls[0]?.[0])).toContain(

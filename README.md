@@ -53,9 +53,10 @@ existentes. Para recriar os exemplos em um ambiente local descartável, use
 
 ### Status, filtro e ordenação do SLA
 
-Na lista de Tickets, a coluna **Status do SLA** mostra o estado e o tempo
-restante. O filtro **Status do SLA** permite selecionar qualquer uma das quatro
-divisões, e **Ordenar SLA** permite ordenar pelo menor ou maior tempo restante.
+Na lista de Tickets, a coluna **Status do SLA** mostra somente o estado. O filtro
+**Status do SLA** permite selecionar qualquer uma das quatro divisões, e
+**Ordenar SLA** permite ordenar pelo menor ou maior tempo restante sem exibir
+esse valor na coluna.
 
 O percentual restante é calculado em relação ao intervalo entre a criação e o
 Prazo de SLA persistido. Tickets cujo prazo ainda não foi calculado aparecem
