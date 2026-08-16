@@ -4,15 +4,21 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 export class ApiProblemError extends Error {
   readonly problem: ProblemDetails | null;
+  readonly requestId: string | null;
 
   constructor(status: number, problem: ProblemDetails | null) {
     super(problem?.detail ?? "Não foi possível concluir esta operação.");
     this.name = "ApiProblemError";
     this.problem = problem;
+    this.requestId = problem?.requestId ?? null;
     this.status = status;
   }
 
   readonly status: number;
+}
+
+export function requestIdFor(error: unknown): string | null {
+  return error instanceof ApiProblemError ? error.requestId : null;
 }
 
 export async function requestJson<T>(

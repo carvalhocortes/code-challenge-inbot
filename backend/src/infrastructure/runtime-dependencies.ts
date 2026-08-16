@@ -8,6 +8,16 @@ export interface RuntimeDependencies {
   redis: Redis;
 }
 
+export class RuntimeDependencyError extends Error {
+  constructor(
+    public readonly dependency: "postgres" | "redis",
+    cause: unknown,
+  ) {
+    super(`${dependency} readiness check failed`, { cause });
+    this.name = "RuntimeDependencyError";
+  }
+}
+
 export function createPostgresPool(
   databaseUrl: string,
 ): InstanceType<typeof pg.Pool> {
@@ -29,18 +39,24 @@ export function createRuntimeDependencies(
 export async function checkRuntimeDependencies(
   dependencies: RuntimeDependencies,
 ): Promise<void> {
-  await Promise.all([
-    dependencies.postgres.query("SELECT 1"),
-    dependencies.redis.connect().catch((error: unknown) => {
+  try {
+    await dependencies.postgres.query("SELECT 1");
+  } catch (error) {
+    throw new RuntimeDependencyError("postgres", error);
+  }
+
+  try {
+    await dependencies.redis.connect().catch((error: unknown) => {
       if (dependencies.redis.status === "ready") {
         return;
       }
 
       throw error;
-    }),
-  ]);
-
-  await dependencies.redis.ping();
+    });
+    await dependencies.redis.ping();
+  } catch (error) {
+    throw new RuntimeDependencyError("redis", error);
+  }
 }
 
 export async function closeRuntimeDependencies(

@@ -141,6 +141,7 @@ describe("detalhe do Ticket", () => {
         name: "Não foi possível concluir a ação",
       }),
     ).toBeVisible();
+    expect(screen.getByText("req-conflict")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Recarregar ticket" }));
 

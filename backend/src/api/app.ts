@@ -27,6 +27,11 @@ export function buildApi(
   const app = Fastify({
     bodyLimit: options.bodyLimit,
     logger: {
+      base: {
+        environment: process.env.NODE_ENV ?? "development",
+        service: "api",
+      },
+      level: process.env.LOG_LEVEL ?? "info",
       redact: {
         paths: [
           "req.headers.authorization",

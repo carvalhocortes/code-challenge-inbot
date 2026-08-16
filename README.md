@@ -79,6 +79,26 @@ seja menor que o limite de alerta.
 | PostgreSQL |  5432 | `pg_isready`                             |
 | Redis      |  6379 | `redis-cli ping`                         |
 
+### Observabilidade
+
+API e Worker escrevem logs estruturados em JSON no stdout. O nível pode ser
+ajustado com `LOG_LEVEL=debug|info|warn|error`; o padrão é `info`.
+
+As requisições HTTP carregam `x-request-id`, devolvido também nos Problem
+Details. Nos fluxos assíncronos, os eventos incluem `ticketId`,
+`processingVersion`, `jobId`, tentativas, duração e stack trace quando houver
+erro. O Worker registra publicação do Outbox, retry, falha definitiva, job
+stalled, erro de conexão e encerramento.
+
+Para acompanhar a operação localmente:
+
+```bash
+docker compose logs -f api worker
+```
+
+Ao reportar uma falha da SPA, informe a **Referência** exibida na mensagem de
+erro. Ela permite localizar o log correspondente da API.
+
 ## Como avaliar comportamentos operacionais
 
 Os cenários abaixo existem para demonstrar falha controlada, recuperação e

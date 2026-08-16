@@ -17,11 +17,49 @@ import {
   createRuntimeDependencies,
 } from "../infrastructure/runtime-dependencies.js";
 import { createTicketSlaWorker } from "../infrastructure/queue/bullmq-ticket-sla-worker.js";
+import {
+  createLogger,
+  errorContext,
+} from "../infrastructure/observability/logger.js";
 
-const config = readRuntimeConfig();
+const logger = createLogger("worker");
+let config: ReturnType<typeof readRuntimeConfig>;
+
+try {
+  config = readRuntimeConfig();
+} catch (error) {
+  logger.error(
+    { ...errorContext(error), event: "worker.configuration_failed" },
+    "Worker configuration failed",
+  );
+  throw error;
+}
+
+logger.info(
+  {
+    event: "worker.starting",
+    holidayProviderMode: config.holidayProviderMode,
+    outboxBatchSize: config.outboxBatchSize,
+    outboxPollIntervalMs: config.outboxPollIntervalMs,
+    slaRetryAttempts: config.slaRetryAttempts,
+  },
+  "SLA Worker starting",
+);
 const dependencies = createRuntimeDependencies(config);
 
-await checkRuntimeDependencies(dependencies);
+try {
+  await checkRuntimeDependencies(dependencies);
+  logger.info(
+    { event: "worker.dependencies_ready" },
+    "Worker runtime dependencies are ready",
+  );
+} catch (error) {
+  logger.error(
+    { ...errorContext(error), event: "worker.dependencies_unavailable" },
+    "Worker runtime dependencies are unavailable",
+  );
+  throw error;
+}
 
 const db = drizzle(dependencies.postgres, { schema });
 const queue = createTicketSlaQueue(dependencies.redis, {
@@ -41,7 +79,7 @@ const processor = new TicketSlaProcessingService(
   holidays,
   { slaHoursByPriority: config.slaHoursByPriority },
 );
-const worker = createTicketSlaWorker(dependencies.redis, processor);
+const worker = createTicketSlaWorker(dependencies.redis, processor, logger);
 const dispatcher = new OutboxDispatcher(
   db,
   queue,
@@ -50,13 +88,23 @@ const dispatcher = new OutboxDispatcher(
     batchSize: config.outboxBatchSize,
     leaseMs: config.outboxLeaseMs,
   },
+  logger,
 );
 
 async function dispatch(): Promise<void> {
   try {
-    await dispatcher.dispatchOnce();
+    const published = await dispatcher.dispatchOnce();
+    if (published > 0) {
+      logger.info(
+        { event: "outbox.dispatch.completed", publishedCount: published },
+        "Outbox dispatch completed",
+      );
+    }
   } catch (error) {
-    process.stderr.write(`Outbox dispatch failed: ${String(error)}\n`);
+    logger.error(
+      { ...errorContext(error), event: "outbox.dispatch.failed" },
+      "Outbox dispatch failed",
+    );
   }
 }
 
@@ -72,6 +120,16 @@ await new Promise<void>((resolve) => {
 });
 
 clearInterval(dispatchInterval);
-await worker.close();
-await queue.close();
-await closeRuntimeDependencies(dependencies);
+logger.info({ event: "worker.shutdown_started" }, "SLA Worker shutting down");
+try {
+  await worker.close();
+  await queue.close();
+  await closeRuntimeDependencies(dependencies);
+  logger.info({ event: "worker.stopped" }, "SLA Worker stopped");
+} catch (error) {
+  logger.error(
+    { ...errorContext(error), event: "worker.shutdown_failed" },
+    "SLA Worker shutdown failed",
+  );
+  process.exitCode = 1;
+}
