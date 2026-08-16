@@ -10,6 +10,8 @@ const originalEnvironment = {
   slaHighHours: process.env.SLA_HIGH_HOURS,
   slaMediumHours: process.env.SLA_MEDIUM_HOURS,
   slaLowHours: process.env.SLA_LOW_HOURS,
+  slaCriticalThresholdPercent: process.env.SLA_CRITICAL_THRESHOLD_PERCENT,
+  slaAlertThresholdPercent: process.env.SLA_ALERT_THRESHOLD_PERCENT,
 };
 
 beforeEach(() => {
@@ -31,6 +33,14 @@ afterEach(() => {
   restoreEnvironment("SLA_HIGH_HOURS", originalEnvironment.slaHighHours);
   restoreEnvironment("SLA_MEDIUM_HOURS", originalEnvironment.slaMediumHours);
   restoreEnvironment("SLA_LOW_HOURS", originalEnvironment.slaLowHours);
+  restoreEnvironment(
+    "SLA_CRITICAL_THRESHOLD_PERCENT",
+    originalEnvironment.slaCriticalThresholdPercent,
+  );
+  restoreEnvironment(
+    "SLA_ALERT_THRESHOLD_PERCENT",
+    originalEnvironment.slaAlertThresholdPercent,
+  );
 });
 
 function restoreEnvironment(name: string, value: string | undefined): void {
@@ -75,6 +85,22 @@ describe("readRuntimeConfig", () => {
 
     expect(() => readRuntimeConfig()).toThrow(
       "Invalid positive number in SLA_CRITICAL_HOURS",
+    );
+  });
+
+  it("reads and validates SLA status thresholds", () => {
+    process.env.SLA_CRITICAL_THRESHOLD_PERCENT = "15";
+    process.env.SLA_ALERT_THRESHOLD_PERCENT = "55";
+
+    expect(readRuntimeConfig()).toMatchObject({
+      slaCriticalThresholdPercent: 15,
+      slaAlertThresholdPercent: 55,
+    });
+
+    process.env.SLA_CRITICAL_THRESHOLD_PERCENT = "60";
+    process.env.SLA_ALERT_THRESHOLD_PERCENT = "40";
+    expect(() => readRuntimeConfig()).toThrow(
+      "must be lower than SLA_ALERT_THRESHOLD_PERCENT",
     );
   });
 });

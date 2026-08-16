@@ -16,6 +16,8 @@ const ticket = {
   status: "open",
   processingStatus: "pending",
   slaDueAt: null,
+  slaStatus: null,
+  slaRemainingMs: null,
   version: 1,
   createdAt: "2026-08-15T12:00:00.000Z",
   updatedAt: "2026-08-15T12:00:00.000Z",

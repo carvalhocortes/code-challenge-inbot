@@ -27,6 +27,8 @@ describe("central de Tickets", () => {
                 status: "open",
                 processingStatus: "processing",
                 slaDueAt: "2026-08-17T16:00:00.000Z",
+                slaStatus: "alert",
+                slaRemainingMs: 90 * 60 * 1000,
                 version: 1,
                 createdAt: "2026-08-15T12:00:00.000Z",
                 updatedAt: "2026-08-15T12:00:00.000Z",
@@ -48,7 +50,7 @@ describe("central de Tickets", () => {
       >
         <MemoryRouter
           initialEntries={[
-            "/tickets?page=2&q=acesso&status=open&priority=high",
+            "/tickets?page=2&q=acesso&status=open&priority=high&slaStatus=alert&slaSort=remaining_asc",
           ]}
         >
           <TicketListPage />
@@ -57,12 +59,13 @@ describe("central de Tickets", () => {
     );
 
     expect(await screen.findByText("Em processamento")).toBeVisible();
+    expect(screen.getByText("Alerta", { selector: "strong" })).toBeVisible();
     expect(screen.getByText("Página 2 de 2")).toBeVisible();
     expect(screen.getByText("17/08/2026, 13:00")).toBeVisible();
 
     await waitFor(() => {
       expect(String(fetchTicketApi.mock.calls[0]?.[0])).toContain(
-        "page=2&pageSize=10&q=acesso&status=open&priority=high",
+        "page=2&pageSize=10&q=acesso&status=open&priority=high&slaStatus=alert&slaSort=remaining_asc",
       );
     });
   });

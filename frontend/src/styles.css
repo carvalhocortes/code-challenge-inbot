@@ -218,7 +218,7 @@ h2 {
 
 .ticket-filters {
   display: grid;
-  grid-template-columns: minmax(15rem, 1.5fr) repeat(2, minmax(10rem, 1fr)) auto;
+  grid-template-columns: minmax(15rem, 1.5fr) repeat(4, minmax(10rem, 1fr)) auto;
   gap: 0.85rem;
   align-items: end;
   padding: 1rem;
@@ -325,6 +325,32 @@ textarea[aria-invalid="true"] {
   color: #f0b5ff;
   background: rgb(166 56 255 / 12%);
   border-color: #a638ff;
+}
+.sla-status-calculating {
+  color: #9ceef6;
+  background: rgb(43 195 212 / 10%);
+  border-color: #2bc3d4;
+}
+.sla-status-overdue,
+.sla-status-critical {
+  color: #ffc0c0;
+  background: rgb(232 91 91 / 12%);
+  border-color: #e85b5b;
+}
+.sla-status-alert {
+  color: #ffe3a3;
+  background: rgb(238 183 68 / 12%);
+  border-color: #eeb744;
+}
+.sla-status-on_track {
+  color: #b9e8cb;
+  background: rgb(74 173 112 / 12%);
+  border-color: #4aad70;
+}
+.sla-status-badge small {
+  color: inherit;
+  font-size: 0.68rem;
+  font-weight: 400;
 }
 .pagination {
   display: flex;

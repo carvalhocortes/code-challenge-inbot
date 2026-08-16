@@ -26,6 +26,17 @@ export type TicketProcessingStatus = z.infer<
   typeof ticketProcessingStatusSchema
 >;
 
+export const ticketSlaStatusSchema = z.enum([
+  "overdue",
+  "critical",
+  "alert",
+  "on_track",
+]);
+export type TicketSlaStatus = z.infer<typeof ticketSlaStatusSchema>;
+
+export const ticketSlaSortSchema = z.enum(["remaining_asc", "remaining_desc"]);
+export type TicketSlaSort = z.infer<typeof ticketSlaSortSchema>;
+
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 
 export const createTicketRequestSchema = z
@@ -63,6 +74,8 @@ export const ticketResponseSchema = z.object({
   status: ticketStatusSchema,
   processingStatus: ticketProcessingStatusSchema,
   slaDueAt: isoDateTimeSchema.nullable(),
+  slaStatus: ticketSlaStatusSchema.nullable(),
+  slaRemainingMs: z.number().int().nullable(),
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -90,6 +103,8 @@ export const listTicketsQuerySchema = z.object({
   q: z.string().trim().min(1).optional(),
   status: ticketStatusSchema.optional(),
   priority: ticketPrioritySchema.optional(),
+  slaStatus: ticketSlaStatusSchema.optional(),
+  slaSort: ticketSlaSortSchema.optional(),
 });
 export type ListTicketsQuery = z.infer<typeof listTicketsQuerySchema>;
 

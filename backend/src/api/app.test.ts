@@ -72,6 +72,8 @@ describe("POST /tickets", () => {
       status: "open",
       processingStatus: "pending",
       slaDueAt: null,
+      slaStatus: null,
+      slaRemainingMs: null,
       version: 1,
       createdAt: "2026-08-14T12:00:00.000Z",
       updatedAt: "2026-08-14T12:00:00.000Z",
@@ -284,7 +286,7 @@ describe("GET /tickets", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/tickets?page=2&pageSize=5&q=acesso&status=open&priority=high",
+      url: "/tickets?page=2&pageSize=5&q=acesso&status=open&priority=high&slaStatus=alert&slaSort=remaining_asc",
     });
 
     expect(response.statusCode).toBe(200);
@@ -300,6 +302,8 @@ describe("GET /tickets", () => {
           status: "open",
           processingStatus: "pending",
           slaDueAt: null,
+          slaStatus: null,
+          slaRemainingMs: null,
           version: 1,
           createdAt: "2026-08-14T12:00:00.000Z",
           updatedAt: "2026-08-14T12:00:00.000Z",
@@ -313,6 +317,8 @@ describe("GET /tickets", () => {
       q: "acesso",
       status: "open",
       priority: "high",
+      slaStatus: "alert",
+      slaSort: "remaining_asc",
     });
   });
 });
@@ -376,6 +382,8 @@ describe("GET /tickets/:id", () => {
       status: "open",
       processingStatus: "pending",
       slaDueAt: null,
+      slaStatus: null,
+      slaRemainingMs: null,
       version: 1,
       createdAt: "2026-08-14T12:00:00.000Z",
       updatedAt: "2026-08-14T12:00:00.000Z",

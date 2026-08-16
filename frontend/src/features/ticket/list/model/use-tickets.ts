@@ -7,8 +7,15 @@ export function useTickets(query: ListTicketsQuery) {
   return useQuery({
     queryFn: () => ticketApi.list(query),
     queryKey: ["tickets", query],
-    refetchInterval: (currentQuery) =>
-      hasActiveProcessing(currentQuery.state.data) ? 3_000 : false,
+    refetchInterval: (currentQuery) => {
+      if (hasActiveProcessing(currentQuery.state.data)) return 3_000;
+
+      return currentQuery.state.data?.items.some(
+        (ticket) => ticket.slaDueAt !== null,
+      )
+        ? 60_000
+        : false;
+    },
   });
 }
 

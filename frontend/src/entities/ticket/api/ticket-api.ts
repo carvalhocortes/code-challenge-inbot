@@ -8,6 +8,8 @@ import {
   type TicketDetailResponse,
   type TicketPriority,
   type TicketResponse,
+  type TicketSlaSort,
+  type TicketSlaStatus,
   type TicketStatus,
 } from "@inbot/shared";
 
@@ -46,6 +48,8 @@ export class TicketApi {
     if (query.q) params.set("q", query.q);
     if (query.status) params.set("status", query.status);
     if (query.priority) params.set("priority", query.priority);
+    if (query.slaStatus) params.set("slaStatus", query.slaStatus);
+    if (query.slaSort) params.set("slaSort", query.slaSort);
 
     const result = await requestJson(
       `/tickets?${params.toString()}`,

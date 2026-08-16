@@ -1,12 +1,15 @@
 import type {
   ListTicketsQuery,
   TicketPriority,
+  TicketSlaSort,
+  TicketSlaStatus,
   TicketStatus,
 } from "@inbot/shared";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { formatTicketDateTime } from "../../../../entities/ticket/lib/format";
 import { ProcessingStatus } from "../../../../entities/ticket/ui/processing-status";
+import { SlaStatusBadge } from "../../../../entities/ticket/ui/sla-status-badge";
 import {
   hasActiveProcessing,
   useTickets,
@@ -26,6 +29,18 @@ const statuses: Array<{ label: string; value: TicketStatus }> = [
   { label: "Fechado", value: "closed" },
 ];
 
+const slaStatuses: Array<{ label: string; value: TicketSlaStatus }> = [
+  { label: "Vencido", value: "overdue" },
+  { label: "Estado crítico", value: "critical" },
+  { label: "Alerta", value: "alert" },
+  { label: "On track", value: "on_track" },
+];
+
+const slaSorts: Array<{ label: string; value: TicketSlaSort }> = [
+  { label: "Menor tempo restante", value: "remaining_asc" },
+  { label: "Maior tempo restante", value: "remaining_desc" },
+];
+
 export function TicketListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = queryFromSearchParams(searchParams);
@@ -40,6 +55,8 @@ export function TicketListPage() {
     if (next.q) params.set("q", next.q);
     if (next.status) params.set("status", next.status);
     if (next.priority) params.set("priority", next.priority);
+    if (next.slaStatus) params.set("slaStatus", next.slaStatus);
+    if (next.slaSort) params.set("slaSort", next.slaSort);
     setSearchParams(params);
   }
 
@@ -125,6 +142,50 @@ export function TicketListPage() {
             ))}
           </select>
         </label>
+        <label>
+          Status do SLA
+          <select
+            aria-label="Status do SLA"
+            onChange={(event) =>
+              updateQuery({
+                page: 1,
+                slaStatus: (event.target.value || undefined) as
+                  | TicketSlaStatus
+                  | undefined,
+              })
+            }
+            value={query.slaStatus ?? ""}
+          >
+            <option value="">Todos os status de SLA</option>
+            {slaStatuses.map((status) => (
+              <option key={status.value} value={status.value}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Ordenar SLA
+          <select
+            aria-label="Ordenar SLA"
+            onChange={(event) =>
+              updateQuery({
+                page: 1,
+                slaSort: (event.target.value || undefined) as
+                  | TicketSlaSort
+                  | undefined,
+              })
+            }
+            value={query.slaSort ?? ""}
+          >
+            <option value="">Mais recentes primeiro</option>
+            {slaSorts.map((sort) => (
+              <option key={sort.value} value={sort.value}>
+                {sort.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className="button button-secondary"
           onClick={() => setSearchParams({})}
@@ -140,7 +201,13 @@ export function TicketListPage() {
       ) : null}
       {tickets.data?.items.length === 0 ? (
         <EmptyTickets
-          hasFilters={Boolean(query.q || query.status || query.priority)}
+          hasFilters={Boolean(
+            query.q ||
+              query.status ||
+              query.priority ||
+              query.slaStatus ||
+              query.slaSort,
+          )}
         />
       ) : null}
       {tickets.data?.items.length ? (
@@ -164,6 +231,8 @@ function queryFromSearchParams(
   const pageSize = Number(searchParams.get("pageSize") ?? "10");
   const status = searchParams.get("status");
   const priority = searchParams.get("priority");
+  const slaStatus = searchParams.get("slaStatus");
+  const slaSort = searchParams.get("slaSort");
   const q = searchParams.get("q")?.trim();
 
   return {
@@ -178,6 +247,12 @@ function queryFromSearchParams(
       : {}),
     ...(priorities.some((item) => item.value === priority)
       ? { priority: priority as TicketPriority }
+      : {}),
+    ...(slaStatuses.some((item) => item.value === slaStatus)
+      ? { slaStatus: slaStatus as TicketSlaStatus }
+      : {}),
+    ...(slaSorts.some((item) => item.value === slaSort)
+      ? { slaSort: slaSort as TicketSlaSort }
       : {}),
   };
 }
@@ -233,6 +308,8 @@ function TicketTable({
     priority: TicketPriority;
     processingStatus: "pending" | "processing" | "processed" | "failed";
     slaDueAt: string | null;
+    slaStatus: TicketSlaStatus | null;
+    slaRemainingMs: number | null;
     status: TicketStatus;
     title: string;
     updatedAt: string;
@@ -248,6 +325,7 @@ function TicketTable({
             <th scope="col">Atendimento</th>
             <th scope="col">Processamento</th>
             <th scope="col">SLA</th>
+            <th scope="col">Status do SLA</th>
             <th scope="col">Atualizado</th>
             <th scope="col">
               <span className="sr-only">Ação</span>
@@ -266,6 +344,12 @@ function TicketTable({
                 <ProcessingStatus status={ticket.processingStatus} />
               </td>
               <td data-label="SLA">{formatSla(ticket.slaDueAt)}</td>
+              <td data-label="Status do SLA">
+                <SlaStatusBadge
+                  remainingMs={ticket.slaRemainingMs}
+                  status={ticket.slaStatus}
+                />
+              </td>
               <td data-label="Atualizado">
                 {formatTicketDateTime(ticket.updatedAt)}
               </td>

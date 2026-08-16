@@ -56,7 +56,11 @@ export function registerTicketRoutes(
     if (result.kind === "replayed") {
       reply.header("idempotency-replayed", "true");
     }
-    return reply.code(201).send(toTicketResponse(result.ticket));
+    return reply
+      .code(201)
+      .send(
+        toTicketResponse(result.ticket, new Date(), dependencies.slaThresholds),
+      );
   });
 
   app.get("/tickets", async (request, reply) => {
@@ -75,7 +79,9 @@ export function registerTicketRoutes(
 
     const result = await dependencies.tickets.listTickets(parsedQuery.data);
     const response: ListTicketsResponse = {
-      items: result.items.map(toTicketResponse),
+      items: result.items.map((ticket) =>
+        toTicketResponse(ticket, new Date(), dependencies.slaThresholds),
+      ),
       meta: result.meta,
     };
     return reply.send(response);
@@ -91,7 +97,11 @@ export function registerTicketRoutes(
         request.params.id,
       );
       const response: TicketDetailResponse = {
-        ...toTicketResponse(result.ticket),
+        ...toTicketResponse(
+          result.ticket,
+          new Date(),
+          dependencies.slaThresholds,
+        ),
         history: result.history.map((entry) => ({
           ...entry,
           createdAt: entry.createdAt.toISOString(),
@@ -134,7 +144,13 @@ export function registerTicketRoutes(
       });
       return reply
         .header("etag", etagFor(result.ticket.version))
-        .send(toTicketResponse(result.ticket));
+        .send(
+          toTicketResponse(
+            result.ticket,
+            new Date(),
+            dependencies.slaThresholds,
+          ),
+        );
     },
   );
 
@@ -155,7 +171,7 @@ export function registerTicketRoutes(
       return reply
         .header("etag", etagFor(ticket.version))
         .code(202)
-        .send(toTicketResponse(ticket));
+        .send(toTicketResponse(ticket, new Date(), dependencies.slaThresholds));
     },
   );
 
@@ -190,7 +206,13 @@ export function registerTicketRoutes(
       });
       return reply
         .header("etag", etagFor(result.ticket.version))
-        .send(toTicketResponse(result.ticket));
+        .send(
+          toTicketResponse(
+            result.ticket,
+            new Date(),
+            dependencies.slaThresholds,
+          ),
+        );
     },
   );
 }

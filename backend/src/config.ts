@@ -17,6 +17,8 @@ export interface RuntimeConfig {
   holidayCacheTtlMs: number;
   holidayProviderMode: HolidayProviderMode;
   slaHoursByPriority: SlaHoursByPriority;
+  slaCriticalThresholdPercent: number;
+  slaAlertThresholdPercent: number;
 }
 
 const holidayProviderModes = [
@@ -94,6 +96,22 @@ function readPositiveNumber(name: string, fallback: number): number {
   return value;
 }
 
+function readPercentage(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return fallback;
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isFinite(value) || value <= 0 || value >= 100) {
+    throw new Error(`Invalid percentage in ${name}`);
+  }
+
+  return value;
+}
+
 function readHolidayProviderMode(): HolidayProviderMode {
   const value = readOptional("HOLIDAY_PROVIDER_MODE", "brasil-api");
 
@@ -107,6 +125,21 @@ function readHolidayProviderMode(): HolidayProviderMode {
 }
 
 export function readRuntimeConfig(): RuntimeConfig {
+  const slaCriticalThresholdPercent = readPercentage(
+    "SLA_CRITICAL_THRESHOLD_PERCENT",
+    10,
+  );
+  const slaAlertThresholdPercent = readPercentage(
+    "SLA_ALERT_THRESHOLD_PERCENT",
+    40,
+  );
+
+  if (slaCriticalThresholdPercent >= slaAlertThresholdPercent) {
+    throw new Error(
+      "SLA_CRITICAL_THRESHOLD_PERCENT must be lower than SLA_ALERT_THRESHOLD_PERCENT",
+    );
+  }
+
   return {
     apiPort: readPort("API_PORT", 3_000),
     corsOrigin: readOptional("CORS_ORIGIN", "http://localhost:5173"),
@@ -133,5 +166,7 @@ export function readRuntimeConfig(): RuntimeConfig {
       medium: readPositiveNumber("SLA_MEDIUM_HOURS", 24),
       low: readPositiveNumber("SLA_LOW_HOURS", 48),
     },
+    slaCriticalThresholdPercent,
+    slaAlertThresholdPercent,
   };
 }

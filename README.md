@@ -27,6 +27,50 @@ Abra a SPA em `http://localhost:5173`; a API está em `http://localhost:3000`.
 Para encerrar, execute `docker compose down`; adicione `--volumes` para descartar
 os dados locais.
 
+### Popular dados de demonstração
+
+Com a infraestrutura local em execução, rode:
+
+```bash
+corepack pnpm db:seed
+```
+
+O seed é idempotente e cria oito Tickets. Além dos exemplos de processamento
+pendente, em andamento, processado e falho, ele cria quatro Tickets processados
+com prazos relativos ao momento da execução:
+
+| Status do SLA  | Exemplo                | Regra                    | Cor      |
+| -------------- | ---------------------- | ------------------------ | -------- |
+| Vencido        | Validação de contrato  | prazo já terminou        | vermelho |
+| Estado crítico | Aprovação financeira   | menos de 10% restante    | vermelho |
+| Alerta         | Retorno ao solicitante | entre 10% e 40% restante | amarelo  |
+| On track       | Revisão de indicadores | mais de 40% restante     | verde    |
+
+Os quatro exemplos relativos ao relógio são destinados à demonstração imediata;
+em um banco já populado, o `onConflictDoNothing` preserva os registros
+existentes. Para recriar os exemplos em um ambiente local descartável, use
+`docker compose down --volumes` antes de subir a stack novamente.
+
+### Status, filtro e ordenação do SLA
+
+Na lista de Tickets, a coluna **Status do SLA** mostra o estado e o tempo
+restante. O filtro **Status do SLA** permite selecionar qualquer uma das quatro
+divisões, e **Ordenar SLA** permite ordenar pelo menor ou maior tempo restante.
+
+O percentual restante é calculado em relação ao intervalo entre a criação e o
+Prazo de SLA persistido. Tickets cujo prazo ainda não foi calculado aparecem
+como `Calculando` e não entram nos quatro filtros.
+
+Os limites são configuráveis no `.env`:
+
+```dotenv
+SLA_CRITICAL_THRESHOLD_PERCENT=10
+SLA_ALERT_THRESHOLD_PERCENT=40
+```
+
+O backend valida que os valores estejam entre 0 e 100 e que o limite crítico
+seja menor que o limite de alerta.
+
 | Serviço    | Porta | Verificação                              |
 | ---------- | ----: | ---------------------------------------- |
 | Frontend   |  5173 | `http://localhost:5173`                  |
@@ -215,8 +259,10 @@ Resultado esperado: a segunda alteração falha com `412` e código
   é idempotente.
 - **Fastify, Zod e Drizzle:** mantêm o adapter HTTP fino, contratos validados e
   consultas tipadas sem esconder transações ou índices importantes.
-- **Polling condicional:** a SPA consulta novamente apenas enquanto há Ticket
-  visível pendente ou processando. WebSocket/SSE não são necessários para a demonstração.
+- **Polling condicional:** a SPA consulta novamente a cada 3 segundos enquanto há
+  Ticket visível pendente ou processando e a cada minuto quando há prazo de SLA
+  calculado, mantendo o status relativo ao relógio atualizado. WebSocket/SSE não
+  são necessários para a demonstração.
 
 ## Arquitetura C4
 

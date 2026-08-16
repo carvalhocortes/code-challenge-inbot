@@ -1,7 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type { ListTicketsQuery } from "@inbot/shared";
-import { and, asc, count, desc, eq, ilike, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import type {
   ChangeTicketPriorityCommand,
@@ -30,6 +40,10 @@ import {
   type TicketStatusTransition,
 } from "../../domain/ticket.js";
 import {
+  defaultSlaThresholds,
+  type SlaThresholds,
+} from "../../domain/sla-status.js";
+import {
   idempotencyKeys,
   outboxMessages,
   ticketHistories,
@@ -45,6 +59,7 @@ export class PostgresTicketRepository
   constructor(
     private readonly db: Database,
     private readonly clock: Clock,
+    private readonly slaThresholds: SlaThresholds = defaultSlaThresholds,
   ) {}
 
   async createTicketWithProcessingIntent(
@@ -286,13 +301,36 @@ export class PostgresTicketRepository
       }
     }
 
+    const now = this.clock.now();
+    const remainingMs = sql<number>`extract(epoch from (${tickets.slaDueAt} - ${now})) * 1000`;
+    const totalMs = sql<number>`extract(epoch from (${tickets.slaDueAt} - ${tickets.createdAt})) * 1000`;
+    const remainingPercent = sql<number>`(${remainingMs} / nullif(${totalMs}, 0)) * 100`;
+
+    if (query.slaStatus !== undefined) {
+      const statusCondition = {
+        overdue: sql`${tickets.slaDueAt} is not null and (${tickets.slaDueAt} <= ${now} or ${totalMs} <= 0)`,
+        critical: sql`${tickets.slaDueAt} is not null and ${tickets.slaDueAt} > ${now} and ${totalMs} > 0 and ${remainingPercent} < ${this.slaThresholds.criticalPercent}`,
+        alert: sql`${tickets.slaDueAt} is not null and ${tickets.slaDueAt} > ${now} and ${totalMs} > 0 and ${remainingPercent} >= ${this.slaThresholds.criticalPercent} and ${remainingPercent} <= ${this.slaThresholds.alertPercent}`,
+        on_track: sql`${tickets.slaDueAt} is not null and ${tickets.slaDueAt} > ${now} and ${totalMs} > 0 and ${remainingPercent} > ${this.slaThresholds.alertPercent}`,
+      }[query.slaStatus];
+      conditions.push(statusCondition);
+    }
+
     const where = conditions.length === 0 ? undefined : and(...conditions);
+    const orderBy =
+      query.slaSort === undefined
+        ? [desc(tickets.createdAt), desc(tickets.id)]
+        : [
+            sql`${remainingMs} ${query.slaSort === "remaining_asc" ? sql`asc` : sql`desc`} nulls last`,
+            desc(tickets.createdAt),
+            desc(tickets.id),
+          ];
     const [rows, totals] = await Promise.all([
       this.db
         .select()
         .from(tickets)
         .where(where)
-        .orderBy(desc(tickets.createdAt), desc(tickets.id))
+        .orderBy(...orderBy)
         .limit(query.pageSize)
         .offset((query.page - 1) * query.pageSize),
       this.db.select({ total: count() }).from(tickets).where(where),

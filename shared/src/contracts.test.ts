@@ -45,6 +45,15 @@ describe("ticketSlaJobSchema", () => {
 describe("HTTP transport schemas", () => {
   it("applies pagination defaults and validates public problem details", () => {
     expect(listTicketsQuerySchema.parse({})).toEqual({ page: 1, pageSize: 10 });
+    expect(
+      listTicketsQuerySchema.parse({
+        slaStatus: "critical",
+        slaSort: "remaining_asc",
+      }),
+    ).toMatchObject({
+      slaStatus: "critical",
+      slaSort: "remaining_asc",
+    });
 
     expect(
       problemDetailsSchema.safeParse({

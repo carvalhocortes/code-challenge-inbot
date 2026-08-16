@@ -9,6 +9,11 @@ import {
 } from "../infrastructure/runtime-dependencies.js";
 
 const seededAt = new Date("2026-08-14T12:00:00.000Z");
+const slaSeededAt = new Date();
+
+function hoursFromSeed(hours: number): Date {
+  return new Date(slaSeededAt.getTime() + hours * 60 * 60 * 1000);
+}
 
 const developmentTickets = [
   {
@@ -62,6 +67,58 @@ const developmentTickets = [
     version: 4,
     createdAt: new Date("2026-08-14T08:30:00.000Z"),
     updatedAt: seededAt,
+  },
+  {
+    id: "10000000-0000-4000-8000-000000000005",
+    title: "SLA vencido — validação de contrato",
+    description: "Exemplo vencido para demonstrar o filtro de SLA.",
+    requesterEmail: "operador-sla-vencido@example.test",
+    priority: "high" as const,
+    status: "open" as const,
+    processingStatus: "processed" as const,
+    slaDueAt: hoursFromSeed(-1),
+    version: 1,
+    createdAt: hoursFromSeed(-6),
+    updatedAt: slaSeededAt,
+  },
+  {
+    id: "10000000-0000-4000-8000-000000000006",
+    title: "SLA crítico — aprovação financeira",
+    description: "Exemplo crítico com menos de dez por cento restante.",
+    requesterEmail: "operador-sla-critico@example.test",
+    priority: "high" as const,
+    status: "in_progress" as const,
+    processingStatus: "processed" as const,
+    slaDueAt: hoursFromSeed(0.25),
+    version: 1,
+    createdAt: hoursFromSeed(-3),
+    updatedAt: slaSeededAt,
+  },
+  {
+    id: "10000000-0000-4000-8000-000000000007",
+    title: "SLA em alerta — retorno ao solicitante",
+    description: "Exemplo em alerta com quarenta por cento restante.",
+    requesterEmail: "operador-sla-alerta@example.test",
+    priority: "high" as const,
+    status: "open" as const,
+    processingStatus: "processed" as const,
+    slaDueAt: hoursFromSeed(2),
+    version: 1,
+    createdAt: hoursFromSeed(-3),
+    updatedAt: slaSeededAt,
+  },
+  {
+    id: "10000000-0000-4000-8000-000000000008",
+    title: "SLA on track — revisão de indicadores",
+    description: "Exemplo no prazo com mais de quarenta por cento restante.",
+    requesterEmail: "operador-sla-on-track@example.test",
+    priority: "high" as const,
+    status: "open" as const,
+    processingStatus: "processed" as const,
+    slaDueAt: hoursFromSeed(6),
+    version: 1,
+    createdAt: hoursFromSeed(-4),
+    updatedAt: slaSeededAt,
   },
 ];
 
@@ -119,6 +176,10 @@ const developmentHistory = [
     "resolved",
     "closed",
   ),
+  history("20000000-0000-4000-8000-000000000012", 5, "created", null, "open"),
+  history("20000000-0000-4000-8000-000000000013", 6, "created", null, "open"),
+  history("20000000-0000-4000-8000-000000000014", 7, "created", null, "open"),
+  history("20000000-0000-4000-8000-000000000015", 8, "created", null, "open"),
 ];
 
 function history(
@@ -160,7 +221,7 @@ async function seed(): Promise<void> {
     });
 
     process.stdout.write(
-      "Development seed ready: 4 tickets and 11 history entries.\n",
+      "Development seed ready: 8 tickets and 15 history entries.\n",
     );
   } finally {
     await closeRuntimeDependencies(dependencies);

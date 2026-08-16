@@ -17,6 +17,8 @@ const ticketDetail = {
   status: "open" as const,
   processingStatus: "failed" as const,
   slaDueAt: "2026-08-17T16:00:00.000Z",
+  slaStatus: "critical" as const,
+  slaRemainingMs: 60 * 60 * 1000,
   version: 3,
   createdAt: "2026-08-15T12:00:00.000Z",
   updatedAt: "2026-08-15T12:05:00.000Z",
