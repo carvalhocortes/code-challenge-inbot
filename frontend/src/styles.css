@@ -390,6 +390,12 @@ textarea[aria-invalid="true"] {
   border: 1px solid #28415f;
   border-radius: 0.5rem;
 }
+.problem-reference {
+  margin: 0.7rem 0 0;
+  color: #aab9cc;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+}
 .problem-state {
   border-left: 4px solid #a638ff;
 }

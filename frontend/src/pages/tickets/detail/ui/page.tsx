@@ -16,10 +16,11 @@ import {
   useTicketDetail,
 } from "../../../../features/ticket/detail/model/use-ticket-detail";
 import { TicketActions } from "../../../../features/ticket/manage/ui/ticket-actions";
-import { ApiProblemError } from "../../../../shared/api/http";
+import { ApiProblemError, requestIdFor } from "../../../../shared/api/http";
 
 interface ActionProblem {
   description: string;
+  requestId: string | null;
   title: string;
 }
 
@@ -36,6 +37,7 @@ export function TicketDetailPage() {
       <section className="problem-state" role="alert">
         <h1>Não foi possível carregar este Ticket</h1>
         <p>Verifique a conexão com a API e tente novamente.</p>
+        <ProblemReference requestId={requestIdFor(ticket.error)} />
         <div className="problem-actions">
           <button
             className="button button-secondary"
@@ -91,6 +93,7 @@ function TicketDetailContent({
         <section className="problem-state action-problem" role="alert">
           <h2>{actionProblem.title}</h2>
           <p>{actionProblem.description}</p>
+          <ProblemReference requestId={actionProblem.requestId} />
           <button
             className="button button-secondary"
             onClick={() => {
@@ -184,6 +187,7 @@ function problemFrom(error: Error | null): ActionProblem | null {
     return {
       description:
         "O ticket mudou ou esta ação não é mais permitida. Recarregue os dados antes de continuar.",
+      requestId: requestIdFor(error),
       title: "Não foi possível concluir a ação",
     };
   }
@@ -193,6 +197,17 @@ function problemFrom(error: Error | null): ActionProblem | null {
       error instanceof ApiProblemError && error.problem?.detail
         ? error.problem.detail
         : "A ação não foi concluída. Verifique a conexão e tente novamente.",
+    requestId: requestIdFor(error),
     title: "Falha ao atualizar o ticket",
   };
+}
+
+function ProblemReference({ requestId }: { requestId: string | null }) {
+  if (requestId === null) return null;
+
+  return (
+    <p className="problem-reference">
+      Referência: <code>{requestId}</code>
+    </p>
+  );
 }

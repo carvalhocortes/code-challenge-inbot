@@ -49,6 +49,7 @@ services:
     command: ["pnpm", "--filter", "@inbot/backend", "start:api"]
     environment:
       API_PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       REQUEST_BODY_LIMIT_BYTES: ${REQUEST_BODY_LIMIT_BYTES:-1048576}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
@@ -85,6 +86,7 @@ services:
       dockerfile: infra/docker/backend.Dockerfile
     command: ["pnpm", "--filter", "@inbot/backend", "start:worker"]
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
       OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}

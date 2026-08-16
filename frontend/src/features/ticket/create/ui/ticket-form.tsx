@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 
 export interface TicketFormProps {
   onCreate(ticket: CreateTicketRequest): Promise<void> | void;
+  problemReference?: string | null;
   submitting?: boolean;
   problem?: string | null;
 }
@@ -26,6 +27,7 @@ const priorities: Array<{
 
 export function TicketForm({
   onCreate,
+  problemReference,
   submitting = false,
   problem,
 }: TicketFormProps) {
@@ -44,6 +46,11 @@ export function TicketForm({
       {problem ? (
         <div className="problem-state" role="alert">
           <p>{problem}</p>
+          {problemReference ? (
+            <small className="problem-reference">
+              Referência: {problemReference}
+            </small>
+          ) : null}
         </div>
       ) : null}
 

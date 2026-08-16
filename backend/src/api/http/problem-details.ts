@@ -7,6 +7,7 @@ import {
   TicketVersionConflictError,
 } from "../../application/tickets/errors.js";
 import { TicketDomainError } from "../../domain/ticket.js";
+import { errorContext } from "../logging.js";
 
 export function sendValidationProblem(
   instance: string,
@@ -58,7 +59,7 @@ export function registerProblemDetails(app: FastifyInstance): void {
     }
 
     app.log.error(
-      { errorName: errorName(error), requestId: request.id },
+      { ...errorContext(error), requestId: request.id },
       "Unhandled API error",
     );
     return reply.type("application/problem+json").code(500).send({
@@ -79,10 +80,6 @@ export function validationReason(issueCode: string): string {
   }
 
   return issueCode === "invalid_string" ? "invalid_format" : "invalid_value";
-}
-
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function problemFor(error: unknown):

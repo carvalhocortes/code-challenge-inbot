@@ -4,6 +4,11 @@ import { sql } from "drizzle-orm";
 import type { Clock } from "../../domain/ticket.js";
 import type { Database } from "../database/database.js";
 import {
+  createLogger,
+  errorContext,
+  type Logger,
+} from "../observability/logger.js";
+import {
   ticketSlaJobName,
   ticketSlaJobOptions,
   type TicketSlaQueue,
@@ -19,6 +24,7 @@ interface ClaimedOutboxMessage {
   id: string;
   payload: TicketSlaJob;
   lockedUntil: Date;
+  attempts: number;
 }
 
 export class OutboxDispatcher {
@@ -27,21 +33,59 @@ export class OutboxDispatcher {
     private readonly queue: TicketSlaQueue,
     private readonly clock: Clock,
     private readonly options: OutboxDispatcherOptions,
+    private readonly logger: Logger = createLogger("worker"),
   ) {}
 
   async dispatchOnce(): Promise<number> {
     const messages = await this.claimBatch();
 
+    this.logger.debug(
+      { event: "outbox.dispatch.claimed", claimedCount: messages.length },
+      "Outbox batch claimed",
+    );
+
     for (const message of messages) {
+      const context = {
+        event: "outbox.message",
+        outboxId: message.id,
+        ticketId: message.payload.ticketId,
+        processingVersion: message.payload.processingVersion,
+        attempts: message.attempts,
+      };
+
       try {
+        this.logger.info(
+          { ...context, phase: "publish_started" },
+          "Outbox message publishing",
+        );
         await this.queue.add(
           ticketSlaJobName,
           message.payload,
           ticketSlaJobOptions(message.payload),
         );
         await this.markPublished(message);
+        this.logger.info(
+          { ...context, phase: "published" },
+          "Outbox message published",
+        );
       } catch (error) {
-        await this.release(message);
+        this.logger.error(
+          { ...context, ...errorContext(error), phase: "publish_failed" },
+          "Outbox message publishing failed",
+        );
+        try {
+          await this.release(message);
+        } catch (releaseError) {
+          this.logger.error(
+            {
+              ...context,
+              ...errorContext(releaseError),
+              phase: "release_failed",
+            },
+            "Outbox message release failed",
+          );
+          throw releaseError;
+        }
         throw error;
       }
     }
@@ -69,7 +113,7 @@ export class OutboxDispatcher {
           updated_at = ${now}
       FROM candidates
       WHERE message.id = candidates.id
-      RETURNING message.id, message.payload, message.locked_until AS "lockedUntil"
+      RETURNING message.id, message.payload, message.locked_until AS "lockedUntil", message.attempts
     `);
 
     return result.rows;

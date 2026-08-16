@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import type { ApiDependencies } from "../dependencies.js";
+import { errorContext } from "../logging.js";
 
 export function registerHealthRoutes(
   app: FastifyInstance,
@@ -14,7 +15,7 @@ export function registerHealthRoutes(
     } catch (error) {
       app.log.error(
         {
-          errorName: error instanceof Error ? error.name : "UnknownError",
+          ...errorContext(error),
           requestId: request.id,
         },
         "Runtime dependency is not ready",

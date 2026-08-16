@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 
 import { TicketForm } from "../../../../features/ticket/create/ui/ticket-form";
 import { useCreateTicket } from "../../../../features/ticket/create/model/use-create-ticket";
-import { ApiProblemError } from "../../../../shared/api/http";
+import { ApiProblemError, requestIdFor } from "../../../../shared/api/http";
 
 export function NewTicketPage() {
   const navigate = useNavigate();
@@ -29,6 +29,7 @@ export function NewTicketPage() {
             navigate(`/tickets/${createdTicket.id}`);
           }}
           problem={problem}
+          problemReference={requestIdFor(createTicket.error)}
           submitting={createTicket.isPending}
         />
       </div>
