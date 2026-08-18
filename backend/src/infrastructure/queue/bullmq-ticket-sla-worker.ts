@@ -1,10 +1,11 @@
 import { UnrecoverableError, Worker, type Job } from "bullmq";
-import type { TicketSlaJob } from "@inbot/shared";
+import { ticketSlaJobSchema, type TicketSlaJob } from "@inbot/shared";
 import type { Redis } from "ioredis";
 
 import {
   HolidayProviderError,
   TicketSlaProcessingService,
+  type TicketSlaJob as ApplicationTicketSlaJob,
   type TicketSlaProcessingResult,
 } from "../../application/tickets/sla-processing.js";
 import {
@@ -28,7 +29,7 @@ export function createTicketSlaWorker(
     ticketSlaQueueName,
     async (job) => {
       try {
-        return await processor.process(job.data);
+        return await processor.process(parseJobData(job.data));
       } catch (error) {
         if (!(error instanceof HolidayProviderError)) {
           throw error;
@@ -42,7 +43,7 @@ export function createTicketSlaWorker(
             },
             "SLA processing reached a definitive failure",
           );
-          await processor.markFailed(job.data);
+          await processor.markFailed(parseJobData(job.data));
           throw new UnrecoverableError(error.message);
         }
         logger.warn(
@@ -93,16 +94,18 @@ export function createTicketSlaWorker(
       error instanceof HolidayProviderError &&
       job.attemptsMade >= (job.opts.attempts ?? 1)
     ) {
-      void processor.markFailed(job.data).catch((markError: unknown) => {
-        logger.error(
-          {
-            ...jobContext(job),
-            ...errorContext(markError),
-            event: "sla.ticket_failure_persist_failed",
-          },
-          "Failed to persist SLA processing failure",
-        );
-      });
+      void processor
+        .markFailed(parseJobData(job.data))
+        .catch((markError: unknown) => {
+          logger.error(
+            {
+              ...jobContext(job),
+              ...errorContext(markError),
+              event: "sla.ticket_failure_persist_failed",
+            },
+            "Failed to persist SLA processing failure",
+          );
+        });
     }
   });
 
@@ -121,6 +124,10 @@ export function createTicketSlaWorker(
   });
 
   return worker;
+}
+
+function parseJobData(data: unknown): ApplicationTicketSlaJob {
+  return ticketSlaJobSchema.parse(data);
 }
 
 function jobContext(job: Job<TicketSlaJob> | undefined) {

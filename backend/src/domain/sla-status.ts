@@ -1,4 +1,4 @@
-import type { TicketSlaStatus } from "@inbot/shared";
+export type TicketSlaStatus = "overdue" | "critical" | "alert" | "on_track";
 
 export interface SlaThresholds {
   criticalPercent: number;

@@ -20,15 +20,14 @@ describe("POST /tickets", () => {
 
   it("creates an open Ticket with a pending processing status", async () => {
     const createTicketWithProcessingIntent = vi.fn(
-      async (command: {
-        ticketId: string;
+      async (input: {
         idempotencyKey: string;
         ticket: CreateTicketRequest;
       }) => ({
         kind: "created" as const,
         ticket: {
-          id: command.ticketId,
-          ...command.ticket,
+          id: ticketId,
+          ...input.ticket,
           status: "open" as const,
           processingStatus: "pending" as const,
           slaDueAt: null,
@@ -79,7 +78,6 @@ describe("POST /tickets", () => {
       updatedAt: "2026-08-14T12:00:00.000Z",
     });
     expect(createTicketWithProcessingIntent).toHaveBeenCalledWith({
-      ticketId,
       idempotencyKey: "create-001",
       ticket: {
         title: "Acesso ao sistema indisponível",

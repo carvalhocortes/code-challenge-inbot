@@ -18,6 +18,7 @@ describe("Clean Architecture dependency boundaries", () => {
       'from "bullmq"',
       'from "ioredis"',
       'from "pg"',
+      "@inbot/shared",
     ];
 
     const violations = await collectImportViolations(files, forbiddenImports);

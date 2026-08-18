@@ -67,7 +67,14 @@ export function buildApi(
   });
 
   registerProblemDetails(app);
-  registerTicketRoutes(app, new TicketController(dependencies));
+  registerTicketRoutes(
+    app,
+    new TicketController({
+      tickets: dependencies.tickets,
+      slaThresholds: dependencies.slaThresholds,
+      clock: dependencies.clock ?? { now: () => new Date() },
+    }),
+  );
   registerHealthRoutes(app, new HealthController(dependencies));
   app.addHook("onClose", () => dependencies.close());
 

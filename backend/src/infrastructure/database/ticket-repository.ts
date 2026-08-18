@@ -1,18 +1,3 @@
-import { createHash, randomUUID } from "node:crypto";
-
-import type { ListTicketsQuery } from "@inbot/shared";
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  ilike,
-  or,
-  sql,
-  type SQL,
-} from "drizzle-orm";
-
 import type {
   ChangeTicketPriorityCommand,
   CreateTicketCommand,
@@ -20,448 +5,61 @@ import type {
   ReprocessTicketCommand,
   TicketCommandRepository,
   TicketDetail,
-  TicketHistoryEntry,
   TicketList,
+  ListTicketsQuery,
   TicketQueryRepository,
   UpdateTicketStatusCommand,
 } from "../../application/tickets/contracts.js";
-import {
-  IdempotencyKeyReusedError,
-  TicketNotFoundError,
-  TicketReprocessNotAllowedError,
-  TicketVersionConflictError,
-} from "../../application/tickets/errors.js";
-import {
-  changeTicketPriority,
-  transitionTicketStatus,
-  type Clock,
-  type Ticket,
-  type TicketPriorityChange,
-  type TicketStatusTransition,
+import type {
+  Clock,
+  Ticket,
+  TicketPriorityChange,
+  TicketStatusTransition,
 } from "../../domain/ticket.js";
-import {
-  defaultSlaThresholds,
-  type SlaThresholds,
-} from "../../domain/sla-status.js";
-import {
-  idempotencyKeys,
-  outboxMessages,
-  ticketHistories,
-  tickets,
-} from "./schema.js";
+import type { SlaThresholds } from "../../domain/sla-status.js";
 import type { Database } from "./database.js";
-import { toDomainTicket } from "./ticket-mapper.js";
+import { PostgresTicketCommandRepository } from "./ticket-command-repository.js";
+import { PostgresTicketQueryRepository } from "./ticket-query-repository.js";
 
-/** PostgreSQL/Drizzle implementation of the ticket persistence ports. */
+/** Compatibility facade over the focused PostgreSQL command/query adapters. */
 export class PostgresTicketRepository
   implements TicketCommandRepository, TicketQueryRepository
 {
-  constructor(
-    private readonly db: Database,
-    private readonly clock: Clock,
-    private readonly slaThresholds: SlaThresholds = defaultSlaThresholds,
-  ) {}
+  private readonly commands: PostgresTicketCommandRepository;
+  private readonly queries: PostgresTicketQueryRepository;
 
-  async createTicketWithProcessingIntent(
+  constructor(db: Database, clock: Clock, slaThresholds?: SlaThresholds) {
+    this.commands = new PostgresTicketCommandRepository(db, clock);
+    this.queries = new PostgresTicketQueryRepository(db, clock, slaThresholds);
+  }
+
+  createTicketWithProcessingIntent(
     command: CreateTicketCommand,
   ): Promise<CreateTicketResult> {
-    const requestHash = hashCanonicalJson(command.ticket);
-
-    return this.db.transaction(async (transaction) => {
-      const existing = await transaction
-        .select({ requestHash: idempotencyKeys.requestHash, ticket: tickets })
-        .from(idempotencyKeys)
-        .innerJoin(tickets, eq(tickets.id, idempotencyKeys.ticketId))
-        .where(eq(idempotencyKeys.key, command.idempotencyKey))
-        .limit(1);
-
-      const existingTicket = existing[0];
-
-      if (existingTicket !== undefined) {
-        if (existingTicket.requestHash !== requestHash) {
-          throw new IdempotencyKeyReusedError();
-        }
-
-        return {
-          kind: "replayed",
-          ticket: toDomainTicket(existingTicket.ticket),
-        };
-      }
-
-      const now = this.clock.now();
-      const persistedTicket = {
-        id: command.ticketId,
-        title: command.ticket.title,
-        description: command.ticket.description,
-        requesterEmail: command.ticket.requesterEmail,
-        priority: command.ticket.priority,
-        status: "open" as const,
-        processingStatus: "pending" as const,
-        slaDueAt: null,
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      await transaction.insert(tickets).values(persistedTicket);
-      await transaction.insert(idempotencyKeys).values({
-        key: command.idempotencyKey,
-        requestHash,
-        ticketId: command.ticketId,
-        createdAt: now,
-      });
-      await transaction.insert(ticketHistories).values({
-        id: randomUUID(),
-        ticketId: command.ticketId,
-        type: "created",
-        previousValue: null,
-        nextValue: "open",
-        source: "operator",
-        createdAt: now,
-      });
-      await transaction.insert(outboxMessages).values({
-        id: randomUUID(),
-        ticketId: command.ticketId,
-        processingVersion: 1,
-        type: "ticket_sla",
-        payload: { ticketId: command.ticketId, processingVersion: 1 },
-        status: "pending",
-        attempts: 0,
-        lockedUntil: null,
-        publishedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return { kind: "created", ticket: toDomainTicket(persistedTicket) };
-    });
+    return this.commands.createTicketWithProcessingIntent(command);
   }
 
-  async updateTicketStatus(
+  updateTicketStatus(
     command: UpdateTicketStatusCommand,
   ): Promise<TicketStatusTransition> {
-    return this.db.transaction(async (transaction) => {
-      const persistedTicket = await transaction
-        .select()
-        .from(tickets)
-        .where(eq(tickets.id, command.ticketId))
-        .limit(1);
-      const current = persistedTicket[0];
-
-      if (current === undefined) {
-        throw new TicketNotFoundError();
-      }
-
-      if (current.version !== command.expectedVersion) {
-        throw new TicketVersionConflictError();
-      }
-
-      const transition = transitionTicketStatus(
-        toDomainTicket(current),
-        command.status,
-        this.clock,
-      );
-
-      if (transition.kind === "noop") {
-        return transition;
-      }
-
-      const updatedTickets = await transaction
-        .update(tickets)
-        .set({
-          status: transition.ticket.status,
-          version: transition.ticket.version,
-          updatedAt: transition.ticket.updatedAt,
-        })
-        .where(
-          and(
-            eq(tickets.id, command.ticketId),
-            eq(tickets.version, command.expectedVersion),
-          ),
-        )
-        .returning();
-
-      if (updatedTickets.length !== 1) {
-        throw new TicketVersionConflictError();
-      }
-
-      await transaction.insert(ticketHistories).values({
-        id: randomUUID(),
-        ticketId: command.ticketId,
-        type: "status_changed",
-        previousValue: transition.previousStatus,
-        nextValue: transition.ticket.status,
-        source: "operator",
-        createdAt: transition.ticket.updatedAt,
-      });
-
-      return transition;
-    });
+    return this.commands.updateTicketStatus(command);
   }
 
-  async changeTicketPriority(
+  changeTicketPriority(
     command: ChangeTicketPriorityCommand,
   ): Promise<TicketPriorityChange> {
-    return this.db.transaction(async (transaction) => {
-      const persistedTicket = await transaction
-        .select()
-        .from(tickets)
-        .where(eq(tickets.id, command.ticketId))
-        .limit(1);
-      const current = persistedTicket[0];
-
-      if (current === undefined) {
-        throw new TicketNotFoundError();
-      }
-
-      if (current.version !== command.expectedVersion) {
-        throw new TicketVersionConflictError();
-      }
-
-      const change = changeTicketPriority(
-        toDomainTicket(current),
-        command.priority,
-        this.clock,
-      );
-
-      if (change.kind === "noop") {
-        return change;
-      }
-
-      const updatedTickets = await transaction
-        .update(tickets)
-        .set({
-          priority: change.ticket.priority,
-          processingStatus: change.ticket.processingStatus,
-          version: change.ticket.version,
-          updatedAt: change.ticket.updatedAt,
-        })
-        .where(
-          and(
-            eq(tickets.id, command.ticketId),
-            eq(tickets.version, command.expectedVersion),
-          ),
-        )
-        .returning();
-
-      if (updatedTickets.length !== 1) {
-        throw new TicketVersionConflictError();
-      }
-
-      await transaction.insert(ticketHistories).values({
-        id: randomUUID(),
-        ticketId: command.ticketId,
-        type: "priority_changed",
-        previousValue: change.previousPriority,
-        nextValue: change.ticket.priority,
-        source: "operator",
-        createdAt: change.ticket.updatedAt,
-      });
-      await transaction.insert(outboxMessages).values({
-        id: randomUUID(),
-        ticketId: command.ticketId,
-        processingVersion: change.ticket.version,
-        type: "ticket_sla",
-        payload: {
-          ticketId: command.ticketId,
-          processingVersion: change.ticket.version,
-        },
-        status: "pending",
-        attempts: 0,
-        lockedUntil: null,
-        publishedAt: null,
-        createdAt: change.ticket.updatedAt,
-        updatedAt: change.ticket.updatedAt,
-      });
-
-      return change;
-    });
+    return this.commands.changeTicketPriority(command);
   }
 
-  async listTickets(query: ListTicketsQuery): Promise<TicketList> {
-    const conditions: SQL[] = [];
-
-    if (query.status !== undefined) {
-      conditions.push(eq(tickets.status, query.status));
-    }
-
-    if (query.priority !== undefined) {
-      conditions.push(eq(tickets.priority, query.priority));
-    }
-
-    if (query.q !== undefined) {
-      const pattern = `%${query.q}%`;
-      const textFilter = or(
-        ilike(tickets.title, pattern),
-        ilike(tickets.description, pattern),
-      );
-
-      if (textFilter !== undefined) {
-        conditions.push(textFilter);
-      }
-    }
-
-    const now = this.clock.now();
-    const remainingMs = sql<number>`extract(epoch from (${tickets.slaDueAt} - ${now})) * 1000`;
-    const totalMs = sql<number>`extract(epoch from (${tickets.slaDueAt} - ${tickets.createdAt})) * 1000`;
-    const remainingPercent = sql<number>`(${remainingMs} / nullif(${totalMs}, 0)) * 100`;
-
-    if (query.slaStatus !== undefined) {
-      const statusCondition = {
-        overdue: sql`${tickets.slaDueAt} is not null and (${tickets.slaDueAt} <= ${now} or ${totalMs} <= 0)`,
-        critical: sql`${tickets.slaDueAt} is not null and ${tickets.slaDueAt} > ${now} and ${totalMs} > 0 and ${remainingPercent} < ${this.slaThresholds.criticalPercent}`,
-        alert: sql`${tickets.slaDueAt} is not null and ${tickets.slaDueAt} > ${now} and ${totalMs} > 0 and ${remainingPercent} >= ${this.slaThresholds.criticalPercent} and ${remainingPercent} <= ${this.slaThresholds.alertPercent}`,
-        on_track: sql`${tickets.slaDueAt} is not null and ${tickets.slaDueAt} > ${now} and ${totalMs} > 0 and ${remainingPercent} > ${this.slaThresholds.alertPercent}`,
-      }[query.slaStatus];
-      conditions.push(statusCondition);
-    }
-
-    const where = conditions.length === 0 ? undefined : and(...conditions);
-    const orderBy =
-      query.slaSort === undefined
-        ? [desc(tickets.createdAt), desc(tickets.id)]
-        : [
-            sql`${remainingMs} ${query.slaSort === "remaining_asc" ? sql`asc` : sql`desc`} nulls last`,
-            desc(tickets.createdAt),
-            desc(tickets.id),
-          ];
-    const [rows, totals] = await Promise.all([
-      this.db
-        .select()
-        .from(tickets)
-        .where(where)
-        .orderBy(...orderBy)
-        .limit(query.pageSize)
-        .offset((query.page - 1) * query.pageSize),
-      this.db.select({ total: count() }).from(tickets).where(where),
-    ]);
-    const total = totals[0]?.total ?? 0;
-
-    return {
-      items: rows.map(toDomainTicket),
-      meta: {
-        page: query.page,
-        pageSize: query.pageSize,
-        total,
-        totalPages: total === 0 ? 0 : Math.ceil(total / query.pageSize),
-      },
-    };
+  reprocessTicket(command: ReprocessTicketCommand): Promise<Ticket> {
+    return this.commands.reprocessTicket(command);
   }
 
-  async getTicketDetail(ticketId: string): Promise<TicketDetail> {
-    const ticketRecords = await this.db
-      .select()
-      .from(tickets)
-      .where(eq(tickets.id, ticketId))
-      .limit(1);
-    const ticket = ticketRecords[0];
-
-    if (ticket === undefined) {
-      throw new TicketNotFoundError();
-    }
-
-    const history = await this.db
-      .select({
-        id: ticketHistories.id,
-        type: ticketHistories.type,
-        previousValue: ticketHistories.previousValue,
-        nextValue: ticketHistories.nextValue,
-        source: ticketHistories.source,
-        createdAt: ticketHistories.createdAt,
-      })
-      .from(ticketHistories)
-      .where(eq(ticketHistories.ticketId, ticketId))
-      .orderBy(asc(ticketHistories.createdAt), asc(ticketHistories.id));
-
-    return { ticket: toDomainTicket(ticket), history };
+  listTickets(query: ListTicketsQuery): Promise<TicketList> {
+    return this.queries.listTickets(query);
   }
 
-  async reprocessTicket(command: ReprocessTicketCommand): Promise<Ticket> {
-    return this.db.transaction(async (transaction) => {
-      const records = await transaction
-        .select()
-        .from(tickets)
-        .where(eq(tickets.id, command.ticketId))
-        .limit(1);
-      const current = records[0];
-
-      if (current === undefined) {
-        throw new TicketNotFoundError();
-      }
-
-      if (current.version !== command.expectedVersion) {
-        throw new TicketVersionConflictError();
-      }
-
-      if (
-        current.processingStatus !== "failed" &&
-        current.processingStatus !== "pending"
-      ) {
-        throw new TicketReprocessNotAllowedError();
-      }
-
-      const now = this.clock.now();
-      const nextVersion = current.version + 1;
-      const updated = await transaction
-        .update(tickets)
-        .set({
-          processingStatus: "pending",
-          slaDueAt: null,
-          version: nextVersion,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(tickets.id, command.ticketId),
-            eq(tickets.version, command.expectedVersion),
-          ),
-        )
-        .returning();
-
-      const ticket = updated[0];
-
-      if (ticket === undefined) {
-        throw new TicketVersionConflictError();
-      }
-
-      await transaction.insert(outboxMessages).values({
-        id: randomUUID(),
-        ticketId: command.ticketId,
-        processingVersion: nextVersion,
-        type: "ticket_sla",
-        payload: { ticketId: command.ticketId, processingVersion: nextVersion },
-        status: "pending",
-        attempts: 0,
-        lockedUntil: null,
-        publishedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return toDomainTicket(ticket);
-    });
+  getTicketDetail(ticketId: string): Promise<TicketDetail> {
+    return this.queries.getTicketDetail(ticketId);
   }
-}
-
-function hashCanonicalJson(value: unknown): string {
-  return createHash("sha256")
-    .update(canonicalJson(value), "utf8")
-    .digest("hex");
-}
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-
-  if (value !== null && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const entries = Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
-
-    return `{${entries.join(",")}}`;
-  }
-
-  return JSON.stringify(value);
 }

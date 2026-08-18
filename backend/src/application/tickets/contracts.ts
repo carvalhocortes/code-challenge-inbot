@@ -1,5 +1,3 @@
-import type { CreateTicketRequest, ListTicketsQuery } from "@inbot/shared";
-
 import type {
   Ticket,
   TicketPriority,
@@ -8,10 +6,22 @@ import type {
   TicketStatusTransition,
 } from "../../domain/ticket.js";
 
+export interface CreateTicketData {
+  title: string;
+  description: string;
+  requesterEmail: string;
+  priority: TicketPriority;
+}
+
+export interface CreateTicketInput {
+  idempotencyKey: string;
+  ticket: CreateTicketData;
+}
+
 export interface CreateTicketCommand {
   ticketId: string;
   idempotencyKey: string;
-  ticket: CreateTicketRequest;
+  ticket: CreateTicketData;
 }
 
 export type CreateTicketResult =
@@ -59,6 +69,18 @@ export interface TicketDetail {
   history: TicketHistoryEntry[];
 }
 
+export type TicketSlaSort = "remaining_asc" | "remaining_desc";
+
+export interface ListTicketsQuery {
+  page: number;
+  pageSize: number;
+  q?: string;
+  status?: TicketStatus;
+  priority?: TicketPriority;
+  slaStatus?: import("../../domain/sla-status.js").TicketSlaStatus;
+  slaSort?: TicketSlaSort;
+}
+
 export interface TicketCommandRepository {
   createTicketWithProcessingIntent(
     command: CreateTicketCommand,
@@ -77,6 +99,17 @@ export interface TicketQueryRepository {
   getTicketDetail(ticketId: string): Promise<TicketDetail>;
 }
 
-export interface TicketUseCases
-  extends TicketCommandRepository,
-    TicketQueryRepository {}
+export interface TicketUseCases {
+  createTicketWithProcessingIntent(
+    input: CreateTicketInput,
+  ): Promise<CreateTicketResult>;
+  updateTicketStatus(
+    command: UpdateTicketStatusCommand,
+  ): Promise<TicketStatusTransition>;
+  changeTicketPriority(
+    command: ChangeTicketPriorityCommand,
+  ): Promise<TicketPriorityChange>;
+  reprocessTicket(command: ReprocessTicketCommand): Promise<Ticket>;
+  listTickets(query: ListTicketsQuery): Promise<TicketList>;
+  getTicketDetail(ticketId: string): Promise<TicketDetail>;
+}

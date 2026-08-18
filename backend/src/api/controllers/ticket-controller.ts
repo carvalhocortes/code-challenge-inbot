@@ -2,25 +2,33 @@ import {
   createTicketRequestSchema,
   listTicketsQuerySchema,
   type ListTicketsResponse,
-  type TicketDetailResponse,
   updateTicketPriorityRequestSchema,
   updateTicketStatusRequestSchema,
 } from "@inbot/shared";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { TicketUseCases } from "../../application/tickets/contracts.js";
-import type { SlaThresholds } from "../../domain/sla-status.js";
+import type { Clock } from "../../domain/ticket.js";
 import {
   sendPreconditionRequired,
   sendValidationProblem,
-  validationReason,
 } from "../http/problem-details.js";
-import { etagFor, toTicketResponse } from "../http/ticket-response.js";
+import {
+  etagFor,
+  sendTicketResponse,
+  toTicketDetailResponse,
+  toTicketResponse,
+} from "../http/ticket-response.js";
+import {
+  parseIfMatch,
+  parseTicketId,
+  validationErrors,
+} from "../http/request-parsing.js";
 
 export interface TicketControllerDependencies {
   tickets: TicketUseCases;
-  slaThresholds?: SlaThresholds;
-  createTicketId(): string;
+  slaThresholds?: import("../../domain/sla-status.js").SlaThresholds;
+  clock: Clock;
 }
 
 type TicketIdRoute = { Params: { id: string } };
@@ -36,10 +44,7 @@ export class TicketController {
         request.url,
         request.id,
         reply,
-        parsedTicket.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "body",
-          reason: validationReason(issue.code),
-        })),
+        validationErrors(parsedTicket.error.issues),
       );
     }
 
@@ -58,23 +63,19 @@ export class TicketController {
 
     const result =
       await this.dependencies.tickets.createTicketWithProcessingIntent({
-        ticketId: this.dependencies.createTicketId(),
         idempotencyKey,
         ticket: parsedTicket.data,
       });
-    reply.header("etag", etagFor(result.ticket.version));
     if (result.kind === "replayed") {
       reply.header("idempotency-replayed", "true");
     }
-    return reply
-      .code(201)
-      .send(
-        toTicketResponse(
-          result.ticket,
-          new Date(),
-          this.dependencies.slaThresholds,
-        ),
-      );
+    return sendTicketResponse(
+      reply,
+      result.ticket,
+      this.dependencies.clock.now(),
+      this.dependencies.slaThresholds,
+      201,
+    );
   };
 
   readonly list = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -84,19 +85,17 @@ export class TicketController {
         request.url,
         request.id,
         reply,
-        parsedQuery.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "query",
-          reason: validationReason(issue.code),
-        })),
+        validationErrors(parsedQuery.error.issues, "query"),
       );
     }
 
     const result = await this.dependencies.tickets.listTickets(
       parsedQuery.data,
     );
+    const now = this.dependencies.clock.now();
     const response: ListTicketsResponse = {
       items: result.items.map((ticket) =>
-        toTicketResponse(ticket, new Date(), this.dependencies.slaThresholds),
+        toTicketResponse(ticket, now, this.dependencies.slaThresholds),
       ),
       meta: result.meta,
     };
@@ -107,31 +106,30 @@ export class TicketController {
     request: FastifyRequest<TicketIdRoute>,
     reply: FastifyReply,
   ) => {
-    if (!isUuid(request.params.id)) {
+    const ticketId = parseTicketId(request.params.id);
+    if (ticketId === undefined) {
       return sendInvalidTicketIdProblem(request.url, request.id, reply);
     }
-    const result = await this.dependencies.tickets.getTicketDetail(
-      request.params.id,
-    );
-    const response: TicketDetailResponse = {
-      ...toTicketResponse(
-        result.ticket,
-        new Date(),
-        this.dependencies.slaThresholds,
-      ),
-      history: result.history.map((entry) => ({
-        ...entry,
-        createdAt: entry.createdAt.toISOString(),
-      })),
-    };
-    return reply.header("etag", etagFor(result.ticket.version)).send(response);
+
+    const result = await this.dependencies.tickets.getTicketDetail(ticketId);
+    return reply
+      .header("etag", etagFor(result.ticket.version))
+      .send(
+        toTicketDetailResponse(
+          result.ticket,
+          result.history,
+          this.dependencies.clock.now(),
+          this.dependencies.slaThresholds,
+        ),
+      );
   };
 
   readonly updateStatus = async (
     request: FastifyRequest<TicketIdRoute>,
     reply: FastifyReply,
   ) => {
-    if (!isUuid(request.params.id)) {
+    const ticketId = parseTicketId(request.params.id);
+    if (ticketId === undefined) {
       return sendInvalidTicketIdProblem(request.url, request.id, reply);
     }
     const expectedVersion = parseIfMatch(request.headers["if-match"]);
@@ -144,33 +142,28 @@ export class TicketController {
         request.url,
         request.id,
         reply,
-        parsedBody.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "body",
-          reason: validationReason(issue.code),
-        })),
+        validationErrors(parsedBody.error.issues),
       );
     }
     const result = await this.dependencies.tickets.updateTicketStatus({
-      ticketId: request.params.id,
+      ticketId,
       expectedVersion,
       status: parsedBody.data.status,
     });
-    return reply
-      .header("etag", etagFor(result.ticket.version))
-      .send(
-        toTicketResponse(
-          result.ticket,
-          new Date(),
-          this.dependencies.slaThresholds,
-        ),
-      );
+    return sendTicketResponse(
+      reply,
+      result.ticket,
+      this.dependencies.clock.now(),
+      this.dependencies.slaThresholds,
+    );
   };
 
   readonly reprocess = async (
     request: FastifyRequest<TicketIdRoute>,
     reply: FastifyReply,
   ) => {
-    if (!isUuid(request.params.id)) {
+    const ticketId = parseTicketId(request.params.id);
+    if (ticketId === undefined) {
       return sendInvalidTicketIdProblem(request.url, request.id, reply);
     }
     const expectedVersion = parseIfMatch(request.headers["if-match"]);
@@ -178,22 +171,24 @@ export class TicketController {
       return sendPreconditionRequired(request.url, request.id, reply);
     }
     const ticket = await this.dependencies.tickets.reprocessTicket({
-      ticketId: request.params.id,
+      ticketId,
       expectedVersion,
     });
-    return reply
-      .header("etag", etagFor(ticket.version))
-      .code(202)
-      .send(
-        toTicketResponse(ticket, new Date(), this.dependencies.slaThresholds),
-      );
+    return sendTicketResponse(
+      reply,
+      ticket,
+      this.dependencies.clock.now(),
+      this.dependencies.slaThresholds,
+      202,
+    );
   };
 
   readonly updatePriority = async (
     request: FastifyRequest<TicketIdRoute>,
     reply: FastifyReply,
   ) => {
-    if (!isUuid(request.params.id)) {
+    const ticketId = parseTicketId(request.params.id);
+    if (ticketId === undefined) {
       return sendInvalidTicketIdProblem(request.url, request.id, reply);
     }
     const expectedVersion = parseIfMatch(request.headers["if-match"]);
@@ -208,43 +203,21 @@ export class TicketController {
         request.url,
         request.id,
         reply,
-        parsedBody.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "body",
-          reason: validationReason(issue.code),
-        })),
+        validationErrors(parsedBody.error.issues),
       );
     }
     const result = await this.dependencies.tickets.changeTicketPriority({
-      ticketId: request.params.id,
+      ticketId,
       expectedVersion,
       priority: parsedBody.data.priority,
     });
-    return reply
-      .header("etag", etagFor(result.ticket.version))
-      .send(
-        toTicketResponse(
-          result.ticket,
-          new Date(),
-          this.dependencies.slaThresholds,
-        ),
-      );
+    return sendTicketResponse(
+      reply,
+      result.ticket,
+      this.dependencies.clock.now(),
+      this.dependencies.slaThresholds,
+    );
   };
-}
-
-function parseIfMatch(
-  header: string | string[] | undefined,
-): number | undefined {
-  if (typeof header !== "string") {
-    return undefined;
-  }
-  const version = /^"([1-9]\d*)"$/.exec(header)?.[1];
-  return version === undefined ? undefined : Number.parseInt(version, 10);
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  );
 }
 
 function sendInvalidTicketIdProblem(
