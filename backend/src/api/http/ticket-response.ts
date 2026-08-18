@@ -1,5 +1,7 @@
-import type { TicketResponse } from "@inbot/shared";
+import type { TicketDetailResponse, TicketResponse } from "@inbot/shared";
+import type { FastifyReply } from "fastify";
 
+import type { TicketHistoryEntry } from "../../application/tickets/contracts.js";
 import {
   defaultSlaThresholds,
   evaluateSla,
@@ -26,4 +28,32 @@ export function toTicketResponse(
     createdAt: ticket.createdAt.toISOString(),
     updatedAt: ticket.updatedAt.toISOString(),
   };
+}
+
+export function toTicketDetailResponse(
+  ticket: Ticket,
+  history: TicketHistoryEntry[],
+  now: Date,
+  thresholds: SlaThresholds = defaultSlaThresholds,
+): TicketDetailResponse {
+  return {
+    ...toTicketResponse(ticket, now, thresholds),
+    history: history.map((entry) => ({
+      ...entry,
+      createdAt: entry.createdAt.toISOString(),
+    })),
+  };
+}
+
+export function sendTicketResponse(
+  reply: FastifyReply,
+  ticket: Ticket,
+  now: Date,
+  thresholds: SlaThresholds | undefined,
+  statusCode = 200,
+) {
+  return reply
+    .header("etag", etagFor(ticket.version))
+    .code(statusCode)
+    .send(toTicketResponse(ticket, now, thresholds));
 }
