@@ -39,7 +39,8 @@ router e controller.
 
 - Alterar regras do domínio Ticket/SLA.
 - Dividir o monólito em serviços.
-- Reescrever `TicketApplicationService` ou `PostgresTicketRepository`.
+- Alterar regras do domínio, schema ou migrações; a fachada
+  `PostgresTicketRepository` permanece somente como compatibilidade interna.
 - Introduzir um framework adicional de controllers ou um container de DI.
 
 ## Critérios de aceite
