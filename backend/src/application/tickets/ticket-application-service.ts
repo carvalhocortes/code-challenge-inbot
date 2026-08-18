@@ -1,8 +1,7 @@
-import type { ListTicketsQuery } from "@inbot/shared";
-
 import type {
   ChangeTicketPriorityCommand,
   CreateTicketCommand,
+  CreateTicketInput,
   CreateTicketResult,
   ReprocessTicketCommand,
   TicketCommandRepository,
@@ -10,6 +9,7 @@ import type {
   TicketList,
   TicketQueryRepository,
   TicketUseCases,
+  ListTicketsQuery,
   UpdateTicketStatusCommand,
 } from "./contracts.js";
 
@@ -18,11 +18,16 @@ export class TicketApplicationService implements TicketUseCases {
   constructor(
     private readonly commands: TicketCommandRepository,
     private readonly queries: TicketQueryRepository,
+    private readonly createTicketId: () => string,
   ) {}
 
   createTicketWithProcessingIntent(
-    command: CreateTicketCommand,
+    input: CreateTicketInput,
   ): Promise<CreateTicketResult> {
+    const command: CreateTicketCommand = {
+      ticketId: this.createTicketId(),
+      ...input,
+    };
     return this.commands.createTicketWithProcessingIntent(command);
   }
 

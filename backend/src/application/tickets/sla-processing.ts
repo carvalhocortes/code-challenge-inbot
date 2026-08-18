@@ -1,5 +1,3 @@
-import { ticketSlaJobSchema } from "@inbot/shared";
-
 import { classifyProcessingFailure } from "../../domain/processing-failure.js";
 import type { ProcessingFailure } from "../../domain/processing-failure.js";
 import {
@@ -9,6 +7,11 @@ import {
 import type { Clock, TicketPriority } from "../../domain/ticket.js";
 
 export type TicketSlaProcessingResult = "processed" | "ignored";
+
+export interface TicketSlaJob {
+  ticketId: string;
+  processingVersion: number;
+}
 
 export interface HolidayProvider {
   holidaysForYear(year: number): Promise<ReadonlySet<string>>;
@@ -51,8 +54,7 @@ export class TicketSlaProcessingService {
     this.slaHoursByPriority = options.slaHoursByPriority;
   }
 
-  async process(payload: unknown): Promise<TicketSlaProcessingResult> {
-    const job = ticketSlaJobSchema.parse(payload);
+  async process(job: TicketSlaJob): Promise<TicketSlaProcessingResult> {
     const claimedTicket = await this.store.claim(
       job.ticketId,
       job.processingVersion,
@@ -82,8 +84,7 @@ export class TicketSlaProcessingService {
     return completed ? "processed" : "ignored";
   }
 
-  async markFailed(payload: unknown): Promise<void> {
-    const job = ticketSlaJobSchema.parse(payload);
+  async markFailed(job: TicketSlaJob): Promise<void> {
     await this.store.markFailed(
       job.ticketId,
       job.processingVersion,
