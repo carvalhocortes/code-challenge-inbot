@@ -6,6 +6,8 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import type { ApiDependencies } from "./dependencies.js";
+import { HealthController } from "./controllers/health-controller.js";
+import { TicketController } from "./controllers/ticket-controller.js";
 import { registerProblemDetails } from "./http/problem-details.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerTicketRoutes } from "./routes/tickets.js";
@@ -65,8 +67,8 @@ export function buildApi(
   });
 
   registerProblemDetails(app);
-  registerTicketRoutes(app, dependencies);
-  registerHealthRoutes(app, dependencies);
+  registerTicketRoutes(app, new TicketController(dependencies));
+  registerHealthRoutes(app, new HealthController(dependencies));
   app.addHook("onClose", () => dependencies.close());
 
   return app;

@@ -34,6 +34,28 @@ describe("Clean Architecture dependency boundaries", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("keeps route registration free from HTTP translation and application logic", async () => {
+    const files = await sourceFilesIn(["api/routes"]);
+    const violations = await collectImportViolations(files, [
+      "/application/",
+      "/domain/",
+      "/http/",
+      "@inbot/shared",
+      "../dependencies",
+    ]);
+
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps HTTP controllers independent from infrastructure adapters", async () => {
+    const files = await sourceFilesIn(["api/controllers"]);
+    const violations = await collectImportViolations(files, [
+      "/infrastructure/",
+    ]);
+
+    expect(violations).toEqual([]);
+  });
 });
 
 async function sourceFilesIn(paths: string[]): Promise<string[]> {
