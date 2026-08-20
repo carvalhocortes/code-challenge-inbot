@@ -5,6 +5,7 @@ import {
   listTicketsQuerySchema,
   problemDetailsSchema,
   ticketSlaJobSchema,
+  ticketSlaJobMessageSchema,
 } from "./contracts.js";
 
 describe("createTicketRequestSchema", () => {
@@ -39,6 +40,32 @@ describe("ticketSlaJobSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("wraps legacy queue payloads without accepting personal data", () => {
+    const result = ticketSlaJobMessageSchema.safeParse({
+      ticketId: "8d3f6f3e-8aab-4ef6-a6b5-0ef7a8b9a1f2",
+      processingVersion: 3,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        payload: {
+          ticketId: "8d3f6f3e-8aab-4ef6-a6b5-0ef7a8b9a1f2",
+          processingVersion: 3,
+        },
+      },
+    });
+    expect(
+      ticketSlaJobMessageSchema.safeParse({
+        payload: {
+          ticketId: "8d3f6f3e-8aab-4ef6-a6b5-0ef7a8b9a1f2",
+          processingVersion: 3,
+        },
+        telemetry: { requesterEmail: "operador@example.com" },
+      }).success,
+    ).toBe(false);
   });
 });
 

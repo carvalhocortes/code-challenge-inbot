@@ -1,4 +1,4 @@
-import type { TicketSlaJob } from "@inbot/shared";
+import { ticketSlaJobMessageSchema } from "@inbot/shared";
 import { sql } from "drizzle-orm";
 
 import type { Clock } from "../../domain/ticket.js";
@@ -13,6 +13,11 @@ import {
   ticketSlaJobOptions,
   type TicketSlaQueue,
 } from "../queue/ticket-sla-queue.js";
+import {
+  contextFromTraceContext,
+  withSpan,
+} from "../../observability/telemetry.js";
+import { recordOutboxMessage } from "../../observability/metrics.js";
 
 export interface OutboxDispatcherOptions {
   batchSize: number;
@@ -22,7 +27,7 @@ export interface OutboxDispatcherOptions {
 interface ClaimedOutboxMessage {
   [key: string]: unknown;
   id: string;
-  payload: TicketSlaJob;
+  payload: unknown;
   lockedUntil: Date;
   attempts: number;
 }
@@ -44,31 +49,51 @@ export class OutboxDispatcher {
       "Outbox batch claimed",
     );
 
-    for (const message of messages) {
+    for (const rawMessage of messages) {
+      const message = {
+        ...rawMessage,
+        payload: ticketSlaJobMessageSchema.parse(rawMessage.payload),
+      };
       const context = {
         event: "outbox.message",
         outboxId: message.id,
-        ticketId: message.payload.ticketId,
-        processingVersion: message.payload.processingVersion,
+        ticketId: message.payload.payload.ticketId,
+        processingVersion: message.payload.payload.processingVersion,
         attempts: message.attempts,
       };
 
       try {
-        this.logger.info(
-          { ...context, phase: "publish_started" },
-          "Outbox message publishing",
+        await withSpan(
+          "outbox.publish",
+          {
+            "messaging.system": "bullmq",
+            "messaging.destination.name": "ticket-sla",
+            "inbot.outbox.id": message.id,
+            "inbot.ticket.id": message.payload.payload.ticketId,
+            "inbot.ticket.processing_version":
+              message.payload.payload.processingVersion,
+          },
+          async () => {
+            this.logger.info(
+              { ...context, phase: "publish_started" },
+              "Outbox message publishing",
+            );
+            await this.queue.add(
+              ticketSlaJobName,
+              message.payload,
+              ticketSlaJobOptions(message.payload.payload),
+            );
+            await this.markPublished(message);
+            this.logger.info(
+              { ...context, phase: "published" },
+              "Outbox message published",
+            );
+          },
+          contextFromTraceContext(message.payload.telemetry),
         );
-        await this.queue.add(
-          ticketSlaJobName,
-          message.payload,
-          ticketSlaJobOptions(message.payload),
-        );
-        await this.markPublished(message);
-        this.logger.info(
-          { ...context, phase: "published" },
-          "Outbox message published",
-        );
+        recordOutboxMessage("published");
       } catch (error) {
+        recordOutboxMessage("failed");
         this.logger.error(
           { ...context, ...errorContext(error), phase: "publish_failed" },
           "Outbox message publishing failed",
@@ -84,6 +109,7 @@ export class OutboxDispatcher {
             },
             "Outbox message release failed",
           );
+          recordOutboxMessage("release_failed");
           throw releaseError;
         }
         throw error;

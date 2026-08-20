@@ -32,6 +32,7 @@ import {
 } from "./schema.js";
 import type { Database } from "./database.js";
 import { toDomainTicket } from "./ticket-mapper.js";
+import { createTicketSlaJobMessage } from "../../observability/telemetry.js";
 
 /** PostgreSQL/Drizzle implementation of the ticket persistence ports. */
 export class PostgresTicketCommandRepository
@@ -104,7 +105,10 @@ export class PostgresTicketCommandRepository
         ticketId: command.ticketId,
         processingVersion: 1,
         type: "ticket_sla",
-        payload: { ticketId: command.ticketId, processingVersion: 1 },
+        payload: createTicketSlaJobMessage({
+          ticketId: command.ticketId,
+          processingVersion: 1,
+        }),
         status: "pending",
         attempts: 0,
         lockedUntil: null,
@@ -242,10 +246,10 @@ export class PostgresTicketCommandRepository
         ticketId: command.ticketId,
         processingVersion: change.ticket.version,
         type: "ticket_sla",
-        payload: {
+        payload: createTicketSlaJobMessage({
           ticketId: command.ticketId,
           processingVersion: change.ticket.version,
-        },
+        }),
         status: "pending",
         attempts: 0,
         lockedUntil: null,
@@ -311,7 +315,10 @@ export class PostgresTicketCommandRepository
         ticketId: command.ticketId,
         processingVersion: nextVersion,
         type: "ticket_sla",
-        payload: { ticketId: command.ticketId, processingVersion: nextVersion },
+        payload: createTicketSlaJobMessage({
+          ticketId: command.ticketId,
+          processingVersion: nextVersion,
+        }),
         status: "pending",
         attempts: 0,
         lockedUntil: null,

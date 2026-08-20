@@ -84,6 +84,12 @@ seja menor que o limite de alerta.
 API e Worker escrevem logs estruturados em JSON no stdout. O nível pode ser
 ajustado com `LOG_LEVEL=debug|info|warn|error`; o padrão é `info`.
 
+Traces e métricas do backend são exportados por OTLP para o Collector local
+quando `OTEL_SDK_DISABLED=false`. O API e o Worker usam nomes de serviço
+distintos (`inbot-api` e `inbot-worker`). O Collector local escreve um resumo
+da telemetria no log do serviço `otel-collector`; um backend de visualização
+pode ser conectado depois sem alterar a aplicação.
+
 As requisições HTTP carregam `x-request-id`, devolvido também nos Problem
 Details. Nos fluxos assíncronos, os eventos incluem `ticketId`,
 `processingVersion`, `jobId`, tentativas, duração e stack trace quando houver
@@ -93,7 +99,7 @@ stalled, erro de conexão e encerramento.
 Para acompanhar a operação localmente:
 
 ```bash
-docker compose logs -f api worker
+docker compose logs -f api worker otel-collector
 ```
 
 Ao reportar uma falha da SPA, informe a **Referência** exibida na mensagem de
