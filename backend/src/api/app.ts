@@ -11,6 +11,7 @@ import { TicketController } from "./controllers/ticket-controller.js";
 import { registerProblemDetails } from "./http/problem-details.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerTicketRoutes } from "./routes/tickets.js";
+import { recordHttpRequest } from "../observability/metrics.js";
 
 export type { ApiDependencies } from "./dependencies.js";
 
@@ -47,6 +48,7 @@ export function buildApi(
     requestIdHeader: "x-request-id",
     genReqId: () => randomUUID(),
   });
+  const requestStartedAt = new WeakMap<object, number>();
 
   void app.register(cors, {
     origin: options.corsOrigin,
@@ -63,7 +65,16 @@ export function buildApi(
     app.addHook("onRequest", app.rateLimit());
   });
   app.addHook("onRequest", async (request, reply) => {
+    requestStartedAt.set(request, Date.now());
     reply.header("x-request-id", request.id);
+  });
+  app.addHook("onResponse", async (request, reply) => {
+    recordHttpRequest(
+      request.method,
+      request.routeOptions.url ?? request.url,
+      reply.statusCode,
+      Date.now() - (requestStartedAt.get(request) ?? Date.now()),
+    );
   });
 
   registerProblemDetails(app);

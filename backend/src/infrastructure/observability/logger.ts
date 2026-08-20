@@ -7,6 +7,8 @@ export interface Logger {
   error(context: LogContext, message: string): void;
 }
 
+import { activeTraceIdentifiers } from "../../observability/telemetry.js";
+
 export type LogContext = Record<string, unknown>;
 
 export interface LoggerOptions {
@@ -40,6 +42,7 @@ export function createLogger(
       level,
       service,
       environment: options.environment ?? process.env.NODE_ENV ?? "development",
+      ...activeTraceIdentifiers(),
       ...normalizeContext(context),
       message,
     };
