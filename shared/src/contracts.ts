@@ -144,3 +144,33 @@ export const ticketSlaJobSchema = z
   })
   .strict();
 export type TicketSlaJob = z.infer<typeof ticketSlaJobSchema>;
+
+export const traceContextSchema = z
+  .object({
+    traceparent: z.string().min(1).optional(),
+    tracestate: z.string().min(1).optional(),
+  })
+  .strict();
+export type TraceContext = z.infer<typeof traceContextSchema>;
+
+export const ticketSlaJobMessageSchema = z.preprocess(
+  (value) => {
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      "ticketId" in value &&
+      "processingVersion" in value
+    ) {
+      return { payload: value };
+    }
+
+    return value;
+  },
+  z
+    .object({
+      payload: ticketSlaJobSchema,
+      telemetry: traceContextSchema.optional(),
+    })
+    .strict(),
+);
+export type TicketSlaJobMessage = z.infer<typeof ticketSlaJobMessageSchema>;

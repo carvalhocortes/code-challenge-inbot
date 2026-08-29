@@ -1,12 +1,12 @@
 import { Queue, type JobsOptions } from "bullmq";
-import type { TicketSlaJob } from "@inbot/shared";
+import type { TicketSlaJob, TicketSlaJobMessage } from "@inbot/shared";
 import type { Redis } from "ioredis";
 
 export const ticketSlaQueueName = "ticket-sla";
 export const ticketSlaJobName = "calculate-sla";
 
 export type TicketSlaQueue = Pick<
-  Queue<TicketSlaJob, void, typeof ticketSlaJobName>,
+  Queue<TicketSlaJobMessage, void, typeof ticketSlaJobName>,
   "add"
 >;
 
@@ -18,7 +18,7 @@ export interface TicketSlaQueueOptions {
 export function createTicketSlaQueue(
   connection: Redis,
   options?: TicketSlaQueueOptions,
-): Queue<TicketSlaJob, void, typeof ticketSlaJobName> {
+): Queue<TicketSlaJobMessage, void, typeof ticketSlaJobName> {
   return new Queue(ticketSlaQueueName, {
     connection,
     defaultJobOptions:

@@ -2,6 +2,7 @@ import { readRuntimeConfig } from "../config.js";
 import { writeBootstrapLog } from "./logging.js";
 import { buildApi } from "./app.js";
 import { createApiDependencies } from "./dependencies.js";
+import { shutdownTelemetry } from "../observability/otel.js";
 
 let config: ReturnType<typeof readRuntimeConfig>;
 
@@ -18,19 +19,22 @@ const app = buildApi(createApiDependencies(config), {
   rateLimitWindowMs: config.rateLimitWindowMs,
 });
 
-function close(): void {
+async function close(): Promise<void> {
   app.log.info({ event: "api.shutdown_started" }, "API shutting down");
-  void app.close().catch((error: unknown) => {
+  try {
+    await app.close();
+    await shutdownTelemetry();
+  } catch (error: unknown) {
     app.log.error(
       { event: "api.shutdown_failed", error },
       "Failed to close API server",
     );
     process.exitCode = 1;
-  });
+  }
 }
 
-process.once("SIGINT", close);
-process.once("SIGTERM", close);
+process.once("SIGINT", () => void close());
+process.once("SIGTERM", () => void close());
 
 try {
   await app.listen({ host: "0.0.0.0", port: config.apiPort });

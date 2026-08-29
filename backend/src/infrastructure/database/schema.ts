@@ -10,6 +10,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { TicketSlaJobMessage } from "@inbot/shared";
 
 export const ticketPriority = pgEnum("ticket_priority", [
   "critical",
@@ -122,9 +123,7 @@ export const outboxMessages = pgTable(
       .references(() => tickets.id),
     processingVersion: integer("processing_version").notNull(),
     type: text("type").notNull(),
-    payload: jsonb("payload")
-      .$type<{ ticketId: string; processingVersion: number }>()
-      .notNull(),
+    payload: jsonb("payload").$type<TicketSlaJobMessage>().notNull(),
     status: outboxStatus("status").notNull(),
     attempts: integer("attempts").notNull(),
     lockedUntil: timestamp("locked_until", {

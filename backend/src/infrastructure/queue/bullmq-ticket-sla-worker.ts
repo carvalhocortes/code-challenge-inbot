@@ -1,11 +1,13 @@
 import { UnrecoverableError, Worker, type Job } from "bullmq";
-import { ticketSlaJobSchema, type TicketSlaJob } from "@inbot/shared";
+import {
+  ticketSlaJobMessageSchema,
+  type TicketSlaJobMessage,
+} from "@inbot/shared";
 import type { Redis } from "ioredis";
 
 import {
   HolidayProviderError,
   TicketSlaProcessingService,
-  type TicketSlaJob as ApplicationTicketSlaJob,
   type TicketSlaProcessingResult,
 } from "../../application/tickets/sla-processing.js";
 import {
@@ -13,6 +15,11 @@ import {
   errorContext,
   type Logger,
 } from "../observability/logger.js";
+import {
+  contextFromTraceContext,
+  withSpan,
+} from "../../observability/telemetry.js";
+import { recordSlaJob } from "../../observability/metrics.js";
 import { ticketSlaJobName, ticketSlaQueueName } from "./ticket-sla-queue.js";
 
 /** BullMQ adapter that converts queue lifecycle events into application calls. */
@@ -20,43 +27,80 @@ export function createTicketSlaWorker(
   connection: Redis,
   processor: TicketSlaProcessingService,
   logger: Logger = createLogger("worker"),
-): Worker<TicketSlaJob, TicketSlaProcessingResult, typeof ticketSlaJobName> {
+): Worker<
+  TicketSlaJobMessage,
+  TicketSlaProcessingResult,
+  typeof ticketSlaJobName
+> {
   const worker = new Worker<
-    TicketSlaJob,
+    TicketSlaJobMessage,
     TicketSlaProcessingResult,
     typeof ticketSlaJobName
   >(
     ticketSlaQueueName,
     async (job) => {
-      try {
-        return await processor.process(parseJobData(job.data));
-      } catch (error) {
-        if (!(error instanceof HolidayProviderError)) {
-          throw error;
-        }
-        if (processor.isDefinitiveFailure(error)) {
-          logger.warn(
-            {
-              ...jobContext(job),
-              event: "sla.processing.definitive_failure",
-              ...failureContext(error),
-            },
-            "SLA processing reached a definitive failure",
-          );
-          await processor.markFailed(parseJobData(job.data));
-          throw new UnrecoverableError(error.message);
-        }
-        logger.warn(
-          {
-            ...jobContext(job),
-            ...errorContext(error),
-            event: "sla.processing.retryable_failure",
-            ...failureContext(error),
-          },
-          "SLA processing will be retried",
-        );
-        throw error;
-      }
+      const message = parseJobData(job.data);
+      const startedAt = Date.now();
+
+      return withSpan(
+        "ticket.sla.process",
+        {
+          "messaging.system": "bullmq",
+          "messaging.destination.name": ticketSlaQueueName,
+          "messaging.operation.name": "process",
+          "inbot.ticket.id": message.payload.ticketId,
+          "inbot.ticket.processing_version": message.payload.processingVersion,
+          "messaging.message.retry.count": job.attemptsMade,
+        },
+        async () => {
+          try {
+            const result = await processor.process(message.payload);
+            recordSlaJob(
+              result === "processed" ? "completed" : "ignored",
+              Date.now() - startedAt,
+            );
+            logger.info(
+              {
+                ...jobContext(job),
+                event: "sla.processing.completed",
+                result,
+              },
+              "SLA processing completed",
+            );
+            return result;
+          } catch (error) {
+            if (!(error instanceof HolidayProviderError)) {
+              recordSlaJob("failed", Date.now() - startedAt);
+              throw error;
+            }
+            if (processor.isDefinitiveFailure(error)) {
+              logger.warn(
+                {
+                  ...jobContext(job),
+                  event: "sla.processing.definitive_failure",
+                  ...failureContext(error),
+                },
+                "SLA processing reached a definitive failure",
+              );
+              await processor.markFailed(message.payload);
+              recordSlaJob("failed", Date.now() - startedAt);
+              throw new UnrecoverableError(error.message);
+            }
+            logger.warn(
+              {
+                ...jobContext(job),
+                ...errorContext(error),
+                event: "sla.processing.retryable_failure",
+                ...failureContext(error),
+              },
+              "SLA processing will be retried",
+            );
+            recordSlaJob("retryable_failure", Date.now() - startedAt);
+            throw error;
+          }
+        },
+        contextFromTraceContext(message.telemetry),
+      );
     },
     { connection },
   );
@@ -95,7 +139,7 @@ export function createTicketSlaWorker(
       job.attemptsMade >= (job.opts.attempts ?? 1)
     ) {
       void processor
-        .markFailed(parseJobData(job.data))
+        .markFailed(parseJobData(job.data).payload)
         .catch((markError: unknown) => {
           logger.error(
             {
@@ -126,19 +170,19 @@ export function createTicketSlaWorker(
   return worker;
 }
 
-function parseJobData(data: unknown): ApplicationTicketSlaJob {
-  return ticketSlaJobSchema.parse(data);
+function parseJobData(data: unknown): TicketSlaJobMessage {
+  return ticketSlaJobMessageSchema.parse(data);
 }
 
-function jobContext(job: Job<TicketSlaJob> | undefined) {
+function jobContext(job: Job<TicketSlaJobMessage> | undefined) {
   if (job === undefined) return {};
 
   return {
     attemptsMade: job.attemptsMade,
     jobId: job.id,
     maxAttempts: job.opts.attempts ?? 1,
-    processingVersion: job.data.processingVersion,
-    ticketId: job.data.ticketId,
+    processingVersion: job.data.payload.processingVersion,
+    ticketId: job.data.payload.ticketId,
   };
 }
 

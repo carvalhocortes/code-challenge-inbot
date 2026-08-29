@@ -21,6 +21,7 @@ import {
   createLogger,
   errorContext,
 } from "../infrastructure/observability/logger.js";
+import { shutdownTelemetry } from "../observability/otel.js";
 
 const logger = createLogger("worker");
 let config: ReturnType<typeof readRuntimeConfig>;
@@ -125,6 +126,7 @@ try {
   await worker.close();
   await queue.close();
   await closeRuntimeDependencies(dependencies);
+  await shutdownTelemetry();
   logger.info({ event: "worker.stopped" }, "SLA Worker stopped");
 } catch (error) {
   logger.error(

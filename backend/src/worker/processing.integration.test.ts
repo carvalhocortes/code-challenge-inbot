@@ -152,7 +152,7 @@ describe("Outbox Dispatcher and SLA Worker", () => {
         updatedAt: now,
       })
       .where(eq(outboxMessages.ticketId, ticketId));
-    await queue.add("calculate-sla", payload, { jobId });
+    await queue.add("calculate-sla", { payload }, { jobId });
     await dispatcher.dispatchOnce();
     await processor.process(payload);
     const processed = await ticketsRepository.getTicketDetail(ticketId);
